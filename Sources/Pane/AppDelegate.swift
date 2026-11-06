@@ -17,6 +17,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pane: PaneController!
     private var menuBar: MenuBarController!
     private var hotkey: GlobalHotkey!
+    /// "Summon Browse Notes", when one is recorded. Nil while unbound, which is the default.
+    private var browseHotkey: GlobalHotkey?
+    private var browse: BrowseController!
     private var watcher: VaultWatcher?
     private var settingsWindow: SettingsWindowController?
     private let updater = AppUpdater()
@@ -41,9 +44,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pane.onVaultMissing = { [weak self] in self?.handleVaultMissing() }
         pane.onOpenSettings = { [weak self] in self?.openSettingsWindow() }
         pane.onSummoned = { [weak self] in self?.checkForUpdateIfDue() }
+        browse = BrowseController(vault: vault, state: state, settings: settings, pane: pane)
+        browse.onPinsChanged = { [weak self] in self?.refreshMenuBar() }
 
         installMenuBarItem()
         installHotkey()
+        installBrowseHotkey()
         startWatching()
         applyLaunchAtLogin()
 
@@ -120,11 +126,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         if hotkey?.registered != new.summonHotkey { installHotkey() }
+        if browseHotkey?.registered != new.browseHotkey { installBrowseHotkey() }
         applyMenuShortcuts()
         applyDockIcon()
         applyLaunchAtLogin()
         applyMenuBarIconVisibility()
         pane?.applySettings()
+        browse?.applySettings()
         settingsWindow?.settingsChanged(new)
         menuBar?.rebuild(hotkey: new.summonHotkey)
         // Shortening the retention should take effect now rather than at the next launch — the
@@ -317,6 +325,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     self?.pane?.vaultChanged(filenames: names)
+                    self?.browse?.vaultChanged()
                     self?.refreshMenuBar()
                 }
             }
@@ -352,6 +361,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menuBar?.rebuild(hotkey: settings.value.summonHotkey)
             return
         }
+    }
+
+    /// The second global hotkey, "Summon Browse Notes" (`Settings.browseHotkey`).
+    ///
+    /// Unregistered entirely while unbound, rather than registered to nothing: a Carbon hotkey is
+    /// taken from every other app on the machine, so Pane holds one only when it was asked to.
+    /// A combination another app already owns is logged and skipped, exactly as for the summon key.
+    private func installBrowseHotkey() {
+        browseHotkey = nil
+        guard let combo = settings.value.browseHotkey else { return }
+
+        let hotkey = GlobalHotkey { [weak self] in self?.browse?.toggle() }
+        guard hotkey.register(combo) else {
+            NSLog("Pane: could not register %@ for Browse Notes: another app already owns it", combo.displayString)
+            return
+        }
+        browseHotkey = hotkey
     }
 
     // MARK: - Menu bar
@@ -604,16 +630,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func newNote() {
+        // From the browse window, ⌘N goes to the pane like ↵ does; the window gets out of the way.
+        if browse?.isKey == true { browse?.dismiss() }
         pane?.summon()
         pane?.createNote(title: "")
     }
 
     @objc private func browseNotes() {
+        if browse?.isKey == true { browse?.dismiss() }
         pane?.openSwitcher()
     }
 
+    /// ⌘W closes the window in front. The browse window is a normal window and Pane is the active
+    /// app while it is up, so this menu item is what receives ⌘W there, and it must not reach past
+    /// it to dismiss the pane.
     @objc private func closePane() {
-        pane?.dismiss()
+        if browse?.isKey == true {
+            browse?.dismiss()
+        } else {
+            pane?.dismiss()
+        }
     }
 
     @objc private func openSettings() {

@@ -26,7 +26,13 @@ final class GlobalHotkey {
     private nonisolated(unsafe) var hotKeyRef: EventHotKeyRef?
     private nonisolated(unsafe) var handlerRef: EventHandlerRef?
 
-    private var nextID: UInt32 = 1
+    /// Every instance draws its IDs from one counter, so two instances never hand Carbon the same
+    /// one. The handler below matches on the ID as well as the signature, and that is only a test of
+    /// *which* hotkey fired if the IDs are unique across the process.
+    private static var nextID: UInt32 = 1
+
+    /// The ID Carbon fires with for the combination this instance holds, which is what the handler checks.
+    private var registeredID: UInt32 = 0
 
     private(set) var registered: Hotkey?
 
@@ -52,8 +58,8 @@ final class GlobalHotkey {
         installHandlerIfNeeded()
 
         var ref: EventHotKeyRef?
-        let id = EventHotKeyID(signature: Self.signature, id: nextID)
-        nextID += 1
+        let id = EventHotKeyID(signature: Self.signature, id: Self.nextID)
+        Self.nextID += 1
 
         let status = RegisterEventHotKey(
             hotkey.keyCode,
@@ -66,6 +72,7 @@ final class GlobalHotkey {
 
         guard status == noErr, let ref else { return false }
         hotKeyRef = ref
+        registeredID = id.id
         registered = hotkey
         return true
     }
@@ -73,6 +80,7 @@ final class GlobalHotkey {
     func unregister() {
         if let hotKeyRef { UnregisterEventHotKey(hotKeyRef) }
         hotKeyRef = nil
+        registeredID = 0
         registered = nil
     }
 
@@ -112,10 +120,17 @@ final class GlobalHotkey {
 
                 // Carbon application event handlers are dispatched on the main run loop, so this is
                 // an assertion about a fact rather than a hop that could deadlock.
-                MainActor.assumeIsolated {
-                    Unmanaged<GlobalHotkey>.fromOpaque(userData).takeUnretainedValue().onFire()
+                //
+                // Every instance installs a handler on the same target, so each one sees every
+                // press of every Pane hotkey. Matching the signature alone made the summon key also
+                // fire the browse window the moment there were two. A press that is not this
+                // instance's is passed on to the next handler rather than claimed.
+                return MainActor.assumeIsolated {
+                    let hotkey = Unmanaged<GlobalHotkey>.fromOpaque(userData).takeUnretainedValue()
+                    guard id.id == hotkey.registeredID else { return OSStatus(eventNotHandledErr) }
+                    hotkey.onFire()
+                    return noErr
                 }
-                return noErr
             },
             1,
             &spec,

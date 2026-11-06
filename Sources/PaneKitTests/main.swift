@@ -21,5 +21,6 @@ runLinkTargetTests()
 runBuildProfileTests()
 runWelcomeNoteTests()
 runHotkeyPressTests()
+runNoteBrowserTests()
 
 exit(Check.finish())

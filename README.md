@@ -97,6 +97,10 @@ Raycast plan details: [pricing](https://www.raycast.com/pricing) and
   full text search. No results? <kbd>⏎</kbd> creates a note with your query as its title.
   <kbd>⌘K</kbd> brings up actions for find, export, reveal in Finder, file renaming, screen capture
   privacy and recently deleted notes.
+- **Browse every note from anywhere.** Record a *Summon browse notes* hotkey in Settings → General
+  and it opens a window over any app: your notes on the left, the selected one rendered on the right
+  with its dates, <kbd>⏎</kbd> to open it in the pane and <kbd>⌘K</kbd> for its actions. It is an
+  ordinary macOS window, so window managers, switchers and Mission Control see it as one.
 - **A window that follows your writing.** Height grows with the note until you resize it manually.
   Float over fullscreen apps, follow Spaces, and choose light or dark appearance.
 - **Fits your routine.** Access Pane from the menu bar or launch it at login.

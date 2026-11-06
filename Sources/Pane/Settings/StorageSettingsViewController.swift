@@ -226,7 +226,7 @@ final class StorageSettingsViewController: NSViewController {
             alert.messageText = "Pane could not use that folder."
             alert.informativeText = error.localizedDescription
             alert.alertStyle = .warning
-            PanePanel.steppingAside { alert.runModal() }
+            _ = PanePanel.steppingAside { alert.runModal() }
             refresh(settings.value)
             return
         }

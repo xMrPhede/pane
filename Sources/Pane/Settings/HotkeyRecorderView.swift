@@ -40,6 +40,9 @@ class HotkeyRecorderViewBase: NSView {
     /// What to show when not recording.
     var displayText: String { "" }
 
+    /// True when `displayText` is a prompt rather than a combination, so it draws quieter.
+    var displayIsPlaceholder: Bool { false }
+
     /// Consume a captured combination.
     ///
     /// - Returns: true when it was accepted and recording should stop. False keeps recording, which
@@ -76,7 +79,7 @@ class HotkeyRecorderViewBase: NSView {
             colour = pending.isEmpty ? .tertiaryLabelColor : .labelColor
         } else {
             text = displayText
-            colour = .labelColor
+            colour = displayIsPlaceholder ? .tertiaryLabelColor : .labelColor
         }
 
         let attributes: [NSAttributedString.Key: Any] = [
@@ -174,6 +177,10 @@ final class HotkeyRecorderView: HotkeyRecorderViewBase {
     /// Fired with a combination the user chose. Not called when recording is cancelled.
     var onRecord: ((Hotkey) -> Void)?
 
+    /// A combination this recorder must refuse: the other global hotkey's. One combination can
+    /// only be registered once, so accepting it would leave one of the two keys silently dead.
+    var rejects: ((Hotkey) -> Bool)?
+
     private(set) var hotkey: Hotkey
 
     init(hotkey: Hotkey) {
@@ -198,6 +205,68 @@ final class HotkeyRecorderView: HotkeyRecorderViewBase {
         guard !modifiers.isEmpty else { return false }
 
         let recorded = Hotkey(keyCode: UInt32(keyCode), modifiers: modifiers)
+        if rejects?(recorded) == true {
+            NSSound.beep()
+            return false
+        }
+        hotkey = recorded
+        onRecord?(recorded)
+        return true
+    }
+}
+
+/// A global hotkey that may be unbound: "Summon Browse Notes" (`Settings.browseHotkey`).
+///
+/// The same recorder, plus the one thing a key that ships unbound needs: a way back to unbound.
+/// ⌫ or ⌦ while recording clears it, which is the convention every Mac shortcut recorder shares,
+/// and the × beside the field (see `GeneralSettingsViewController`) does the same for the mouse.
+@MainActor
+final class OptionalHotkeyRecorderView: HotkeyRecorderViewBase {
+
+    /// Fired with the new combination, or nil when it was cleared.
+    var onRecord: ((Hotkey?) -> Void)?
+
+    /// See `HotkeyRecorderView.rejects`.
+    var rejects: ((Hotkey) -> Bool)?
+
+    private(set) var hotkey: Hotkey?
+
+    init(hotkey: Hotkey?) {
+        self.hotkey = hotkey
+        super.init(frame: .zero)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    func setHotkey(_ hotkey: Hotkey?) {
+        self.hotkey = hotkey
+        needsDisplay = true
+    }
+
+    func clear() {
+        guard hotkey != nil else { return }
+        hotkey = nil
+        needsDisplay = true
+        onRecord?(nil)
+    }
+
+    override var displayText: String { hotkey?.displayString ?? "Record Shortcut" }
+    override var displayIsPlaceholder: Bool { hotkey == nil }
+
+    override func handle(keyCode: UInt16, flags: NSEvent.ModifierFlags) -> Bool {
+        let modifiers = Self.hotkeyModifiers(for: flags)
+        if modifiers.isEmpty, keyCode == UInt16(kVK_Delete) || keyCode == UInt16(kVK_ForwardDelete) {
+            clear()
+            return true
+        }
+        guard !modifiers.isEmpty else { return false }
+
+        let recorded = Hotkey(keyCode: UInt32(keyCode), modifiers: modifiers)
+        if rejects?(recorded) == true {
+            NSSound.beep()
+            return false
+        }
         hotkey = recorded
         onRecord?(recorded)
         return true

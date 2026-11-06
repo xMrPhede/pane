@@ -1,0 +1,668 @@
+/*
+ * The browse window: "Summon Browse Notes".
+ *
+ * A fixed 750×474 window, measured off the reference it was asked to match: a 55px search bar with
+ * no rule under it, a 283px list column of 38px rows, a hairline divider that starts below the
+ * search, the selected note rendered on the right with an Information block under it, and an action
+ * bar that floats as two glass pills over the bottom edge rather than owning a strip of its own.
+ *
+ * The material is Swift's NSVisualEffectView (see `BrowseWebView`), exactly as for the pane; this
+ * sheet paints the tint over it. Dark is the reference's own colours, sampled from it: warm at the
+ * top, cool at the bottom. Light is the same shape in Pane's light palette.
+ */
+
+:root {
+  --browse-width: 750px;
+  --browse-height: 474px;
+  --browse-radius: 16px;
+
+  --browse-search-height: 55px;
+  --browse-list-width: 283px;
+  --browse-row-height: 38px;
+  --browse-section-height: 32px;
+  --browse-row-inset: 7px;
+  --browse-bar-height: 35px;
+
+  --browse-tint-top: rgba(250, 246, 245, 0.86);
+  --browse-tint-mid: rgba(247, 247, 249, 0.86);
+  --browse-tint-bottom: rgba(243, 248, 249, 0.86);
+  --browse-rim: rgba(0, 0, 0, 0.12);
+  --browse-rim-light: rgba(255, 255, 255, 0.6);
+
+  --browse-text: rgba(0, 0, 0, 0.88);
+  --browse-text-secondary: rgba(0, 0, 0, 0.5);
+  --browse-text-tertiary: rgba(0, 0, 0, 0.38);
+  --browse-placeholder: rgba(0, 0, 0, 0.3);
+  --browse-icon: rgba(0, 0, 0, 0.62);
+
+  --browse-selected: rgba(0, 0, 0, 0.065);
+  --browse-hover: rgba(0, 0, 0, 0.035);
+  --browse-divider: rgba(0, 0, 0, 0.07);
+  --browse-info-row: rgba(0, 0, 0, 0.03);
+
+  --browse-pill-bg: rgba(255, 255, 255, 0.78);
+  --browse-pill-border: rgba(0, 0, 0, 0.08);
+  --browse-pill-text: rgba(0, 0, 0, 0.55);
+  --browse-key-border: rgba(0, 0, 0, 0.16);
+
+  --browse-popover-bg: rgba(250, 250, 252, 0.94);
+  --browse-scrollbar: rgba(0, 0, 0, 0.25);
+
+  --browse-checkbox: #006dfe;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-appearance="light"]) {
+    --browse-tint-top: rgba(41, 31, 28, 0.94);
+    --browse-tint-mid: rgba(34, 34, 37, 0.94);
+    --browse-tint-bottom: rgba(25, 40, 42, 0.94);
+    --browse-rim: rgba(255, 255, 255, 0.1);
+    --browse-rim-light: rgba(255, 255, 255, 0.06);
+
+    --browse-text: rgba(255, 255, 255, 0.9);
+    --browse-text-secondary: rgba(255, 255, 255, 0.5);
+    --browse-text-tertiary: rgba(255, 255, 255, 0.4);
+    --browse-placeholder: rgba(255, 255, 255, 0.36);
+    --browse-icon: rgba(255, 255, 255, 0.82);
+
+    --browse-selected: rgba(60, 60, 68, 0.6);
+    --browse-hover: rgba(255, 255, 255, 0.035);
+    --browse-divider: rgba(255, 255, 255, 0.06);
+    --browse-info-row: rgba(255, 255, 255, 0.025);
+
+    --browse-pill-bg: rgba(44, 55, 59, 0.82);
+    --browse-pill-border: rgba(255, 255, 255, 0.1);
+    --browse-pill-text: rgba(255, 255, 255, 0.62);
+    --browse-key-border: rgba(255, 255, 255, 0.22);
+
+    --browse-popover-bg: rgba(38, 37, 41, 0.97);
+    --browse-scrollbar: rgba(255, 255, 255, 0.3);
+  }
+}
+
+:root[data-appearance="dark"] {
+  --browse-tint-top: rgba(41, 31, 28, 0.94);
+  --browse-tint-mid: rgba(34, 34, 37, 0.94);
+  --browse-tint-bottom: rgba(25, 40, 42, 0.94);
+  --browse-rim: rgba(255, 255, 255, 0.1);
+  --browse-rim-light: rgba(255, 255, 255, 0.06);
+
+  --browse-text: rgba(255, 255, 255, 0.9);
+  --browse-text-secondary: rgba(255, 255, 255, 0.5);
+  --browse-text-tertiary: rgba(255, 255, 255, 0.4);
+  --browse-placeholder: rgba(255, 255, 255, 0.36);
+  --browse-icon: rgba(255, 255, 255, 0.82);
+
+  --browse-selected: rgba(60, 60, 68, 0.6);
+  --browse-hover: rgba(255, 255, 255, 0.035);
+  --browse-divider: rgba(255, 255, 255, 0.06);
+  --browse-info-row: rgba(255, 255, 255, 0.025);
+
+  --browse-pill-bg: rgba(44, 55, 59, 0.82);
+  --browse-pill-border: rgba(255, 255, 255, 0.1);
+  --browse-pill-text: rgba(255, 255, 255, 0.62);
+  --browse-key-border: rgba(255, 255, 255, 0.22);
+
+  --browse-popover-bg: rgba(38, 37, 41, 0.97);
+  --browse-scrollbar: rgba(255, 255, 255, 0.3);
+}
+
+/* Translucency off: the same tint, opaque. */
+:root[data-vibrancy="off"] {
+  --browse-tint-top: rgb(250, 246, 245);
+  --browse-tint-mid: rgb(247, 247, 249);
+  --browse-tint-bottom: rgb(243, 248, 249);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-vibrancy="off"]:not([data-appearance="light"]) {
+    --browse-tint-top: rgb(41, 31, 28);
+    --browse-tint-mid: rgb(34, 34, 37);
+    --browse-tint-bottom: rgb(25, 40, 42);
+  }
+}
+
+:root[data-vibrancy="off"][data-appearance="dark"] {
+  --browse-tint-top: rgb(41, 31, 28);
+  --browse-tint-mid: rgb(34, 34, 37);
+  --browse-tint-bottom: rgb(25, 40, 42);
+}
+
+/* ---- Page ------------------------------------------------------------------------------------ */
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: default;
+}
+
+kbd {
+  font-family: var(--font-ui);
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.browse {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  border-radius: var(--browse-radius);
+  background: linear-gradient(
+    to bottom,
+    var(--browse-tint-top) 0%,
+    var(--browse-tint-mid) 52%,
+    var(--browse-tint-bottom) 100%
+  );
+  /* The rim: a hairline all the way round, a touch brighter along the top edge where light lands. */
+  box-shadow:
+    inset 0 0 0 0.5px var(--browse-rim),
+    inset 0 0.5px 0 0 var(--browse-rim-light);
+  color: var(--browse-text);
+}
+
+/* ---- Search ---------------------------------------------------------------------------------- */
+
+.browse__search {
+  position: relative;
+  height: var(--browse-search-height);
+  display: flex;
+  align-items: center;
+  /* Optically centred, which is 3px below the box's centre: the field's text sits on the line the
+   * list's first section header hangs from. */
+  padding: 6px 16px 0 13px;
+  gap: 13px;
+}
+
+.browse__back {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin-top: 1px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--browse-text-secondary);
+}
+
+.browse__back:hover {
+  background: var(--browse-hover);
+  color: var(--browse-text);
+}
+
+.browse__input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--browse-text);
+  caret-color: var(--browse-text);
+  font: 400 19px/1 var(--font-ui);
+  letter-spacing: -0.1px;
+  padding: 0;
+}
+
+.browse__input::placeholder {
+  color: var(--browse-placeholder);
+}
+
+/* ---- Body ------------------------------------------------------------------------------------ */
+
+.browse__body {
+  position: absolute;
+  inset: var(--browse-search-height) 0 0 0;
+}
+
+.browse__divider {
+  position: absolute;
+  left: var(--browse-list-width);
+  top: 12px;
+  bottom: 7px;
+  width: 1px;
+  background: var(--browse-divider);
+}
+
+/* ---- List ------------------------------------------------------------------------------------ */
+
+.browse__list {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--browse-list-width);
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* Room for the last row to scroll clear of the floating action bar. */
+  padding: 0 0 54px;
+  /* Neither end is a hard edge. Rows scroll up under the search field fading out, and run on under
+   * the action bar fading out there, so the window reads as one surface rather than three boxes. */
+  -webkit-mask-image: linear-gradient(
+    to bottom, transparent 0, #000 14px, #000 calc(100% - 64px), transparent calc(100% - 6px)
+  );
+  mask-image: linear-gradient(
+    to bottom, transparent 0, #000 14px, #000 calc(100% - 64px), transparent calc(100% - 6px)
+  );
+  scrollbar-width: none;
+}
+
+/* No native scroller: in WebKit a styled one takes layout width, which would pull every row's right
+ * edge in by its width. The thumb below overlays the rows instead, and only while scrolling. */
+.browse__list::-webkit-scrollbar {
+  display: none;
+}
+
+.browse__scroll-thumb {
+  position: absolute;
+  left: calc(var(--browse-list-width) - 8px);
+  width: 6px;
+  border-radius: 3px;
+  background: var(--browse-scrollbar);
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  pointer-events: none;
+}
+
+.browse__scroll-thumb[data-active] {
+  opacity: 1;
+  transition-duration: 0.08s;
+}
+
+.browse__section {
+  height: var(--browse-section-height);
+  padding: 13px 0 0 15px;
+  font: 500 12px/1 var(--font-ui);
+  color: var(--browse-text-secondary);
+  letter-spacing: 0.1px;
+}
+
+.browse__row {
+  position: relative;
+  height: var(--browse-row-height);
+  margin: 0 var(--browse-row-inset);
+  padding: 0 10px 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  border-radius: 8px;
+  color: var(--browse-text);
+}
+
+.browse__row:hover {
+  background: var(--browse-hover);
+}
+
+.browse__row[aria-selected="true"] {
+  background: var(--browse-selected);
+}
+
+.browse__row-icon {
+  flex: none;
+  margin-top: -1px;
+  color: var(--browse-icon);
+}
+
+.doc-icon {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.browse__row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font: 500 13.1px/1 var(--font-ui);
+}
+
+.browse__row-pin {
+  flex: none;
+  color: var(--browse-text-tertiary);
+}
+
+.browse__empty {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--browse-list-width);
+  padding: 0 24px 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  color: var(--browse-text-tertiary);
+}
+
+.browse__empty svg {
+  margin-bottom: 6px;
+  color: var(--browse-text-tertiary);
+}
+
+.browse__empty-title {
+  font: 600 14px/1.2 var(--font-ui);
+  color: var(--browse-text);
+}
+
+.browse__empty-hint {
+  font: 400 12.5px/1.35 var(--font-ui);
+}
+
+/* ---- Detail ---------------------------------------------------------------------------------- */
+
+.browse__detail {
+  position: absolute;
+  inset: 0 0 0 calc(var(--browse-list-width) + 1px);
+}
+
+/* The note, as the pane renders it, at the reference's size. It runs down to the Information block
+ * and fades out above it, so a long note reads as continuing rather than as cut off. */
+.browse__preview {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 232px;
+  --text-size: 14.5px;
+  --size-h1: 23px;
+  --line-height: 1.36;
+  --content-padding: 19px 30px 40px 26.5px;
+  /* CodeMirror insets every line 6px and a list's checkbox hangs 1px in, so a heading sat 5px right
+   * of the checkbox under it. The reference aligns them; list lines take the difference here (a
+   * quote sets its own inset, and keeps it). */
+  --line-inset: 3px;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 110px), transparent calc(100% - 20px));
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 110px), transparent calc(100% - 20px));
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.browse__preview .cm-editor {
+  color: var(--browse-text);
+}
+
+.browse__preview .cm-scroller {
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.browse__preview .cm-scroller::-webkit-scrollbar {
+  display: none;
+}
+
+.browse__preview .pane-line-h1 {
+  font-weight: 700;
+  letter-spacing: -0.2px;
+}
+
+/* A preview is not a place to tick things off: the checkbox is drawn, not pressed. */
+.browse__preview .pane-task {
+  pointer-events: none;
+  border-color: var(--browse-checkbox);
+  border-width: 1.5px;
+}
+
+.browse__preview .pane-task--done {
+  background: var(--browse-checkbox);
+}
+
+.browse__placeholder {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 232px;
+  display: grid;
+  place-items: center;
+  font: 400 13px/1.3 var(--font-ui);
+  color: var(--browse-text-tertiary);
+}
+
+.browse__info {
+  position: absolute;
+  left: 16px;
+  right: 17px;
+  top: 239px;
+}
+
+.browse__info-heading {
+  height: 16px;
+  margin: 0 0 6px 8px;
+  font: 500 11px/16px var(--font-ui);
+  color: var(--browse-text-secondary);
+}
+
+.browse__info-row {
+  height: 25px;
+  margin-bottom: 3px;
+  padding: 0 8px 0 7.5px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-radius: 6px;
+  background: var(--browse-info-row);
+  font: 400 11.5px/1 var(--font-ui);
+  color: var(--browse-text-secondary);
+}
+
+.browse__info-row span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--browse-text);
+}
+
+/* ---- Action bar ------------------------------------------------------------------------------ */
+
+/* Two pills floating over the bottom edge: the command on the left, what ↵ and ⌘K do on the right.
+ * Glass over whatever is under them: the list's last rows show through, blurred. */
+.browse__bar {
+  position: absolute;
+  left: 8px;
+  right: 9px;
+  bottom: 9px;
+  height: var(--browse-bar-height);
+  display: flex;
+  justify-content: space-between;
+  pointer-events: none;
+  /* Explicitly above the list: the list's mask makes it a stacking context of its own. */
+  z-index: 3;
+}
+
+.browse__pill {
+  pointer-events: auto;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  border-radius: calc(var(--browse-bar-height) / 2);
+  background: var(--browse-pill-bg);
+  box-shadow: inset 0 0 0 0.5px var(--browse-pill-border), 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  backdrop-filter: blur(14px) saturate(1.4);
+}
+
+.browse__pill--title {
+  gap: 8px;
+  padding: 0 15px 0 9px;
+  font: 400 12.5px/1 var(--font-ui);
+  color: var(--browse-pill-text);
+}
+
+.browse__app-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  /* Pane's icon is a white pane, which at this size is a white tile; the hairline gives it an edge. */
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.25);
+}
+
+.browse__pill--actions {
+  gap: 2px;
+  padding: 0 10px 0 6px;
+}
+
+.browse__bar-button {
+  height: 27px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 0 0 8px;
+  border-radius: 14px;
+  font: 400 12.5px/1 var(--font-ui);
+  color: var(--browse-pill-text);
+}
+
+.browse__bar-button span {
+  margin-right: 5px;
+}
+
+.browse__bar-button--primary {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--browse-text);
+  padding-right: 6px;
+}
+
+.browse__bar-button kbd,
+.browse__action-keys kbd {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1px var(--browse-key-border);
+  font: 500 11px/1 var(--font-ui);
+  color: var(--browse-pill-text);
+}
+
+.browse__bar-button:active,
+.browse__bar-button[aria-pressed="true"] {
+  color: var(--browse-text);
+}
+
+/* ---- ⌘K -------------------------------------------------------------------------------------- */
+
+.browse__actions {
+  position: absolute;
+  right: 9px;
+  bottom: calc(9px + var(--browse-bar-height) + 8px);
+  width: 312px;
+  max-height: 340px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  background: var(--browse-popover-bg);
+  box-shadow:
+    inset 0 0 0 0.5px var(--browse-rim),
+    0 16px 40px rgba(0, 0, 0, 0.35),
+    0 2px 6px rgba(0, 0, 0, 0.18);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  backdrop-filter: blur(20px) saturate(1.5);
+  overflow: hidden;
+  z-index: 5;
+}
+
+.browse__actions-list {
+  padding: 6px;
+  overflow-y: auto;
+}
+
+.browse__action {
+  height: 34px;
+  padding: 0 8px 0 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-radius: 7px;
+  font: 400 13.5px/1 var(--font-ui);
+  color: var(--browse-text);
+}
+
+.browse__action[aria-selected="true"] {
+  background: var(--browse-selected);
+}
+
+.browse__action--destructive .browse__action-label {
+  color: #ff5f57;
+}
+
+.browse__action--none {
+  justify-content: center;
+  color: var(--browse-text-tertiary);
+}
+
+.browse__action-keys {
+  display: flex;
+  gap: 3px;
+}
+
+.browse__actions-search {
+  flex: none;
+  height: 40px;
+  border: 0;
+  border-top: 1px solid var(--browse-divider);
+  outline: none;
+  background: transparent;
+  padding: 0 16px;
+  color: var(--browse-text);
+  caret-color: var(--browse-text);
+  font: 400 13.5px/1 var(--font-ui);
+}
+
+.browse__actions-search::placeholder {
+  color: var(--browse-placeholder);
+}
+
+/* ---- Toast ----------------------------------------------------------------------------------- */
+
+.browse__toast {
+  position: absolute;
+  left: 50%;
+  bottom: 13px;
+  transform: translateX(-50%);
+  height: 27px;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  border-radius: 14px;
+  background: var(--browse-popover-bg);
+  box-shadow: inset 0 0 0 0.5px var(--browse-rim), 0 6px 18px rgba(0, 0, 0, 0.25);
+  font: 500 12.5px/1 var(--font-ui);
+  color: var(--browse-text);
+  white-space: nowrap;
+  z-index: 6;
+  transition: opacity 0.2s ease;
+}
+
+.browse__toast--out {
+  opacity: 0;
+}

@@ -15,6 +15,8 @@ final class GeneralSettingsViewController: NSViewController {
 
     private let settings: SettingsStore
     private var recorder: HotkeyRecorderView!
+    private var browseRecorder: OptionalHotkeyRecorderView!
+    private var browseClear: NSButton!
     private var noteOrder: NSPopUpButton!
 
     init(settings: SettingsStore) {
@@ -35,10 +37,39 @@ final class GeneralSettingsViewController: NSViewController {
         recorder.onRecord = { [weak self] hotkey in
             self?.settings.update { $0.summonHotkey = hotkey }
         }
+        recorder.rejects = { [weak self] in $0 == self?.settings.value.browseHotkey }
         let recorderRow = NSStackView(views: [recorder])
         recorderRow.orientation = .horizontal
         recorderRow.spacing = 8
         form.row("Summon hotkey", recorderRow)
+
+        // ---- browse ------------------------------------------------------------------------
+        // The second global hotkey: the browse window, from anywhere. Here rather than on the
+        // Shortcuts tab for the summon key's reason: it is a Carbon hotkey that has to work while
+        // Pane is not frontmost, and this tab is where those live. Unbound until recorded.
+        browseRecorder = OptionalHotkeyRecorderView(hotkey: current.browseHotkey)
+        browseRecorder.onRecord = { [weak self] hotkey in
+            self?.settings.update { $0.browseHotkey = hotkey }
+            self?.browseClear.isHidden = hotkey == nil
+        }
+        browseRecorder.rejects = { [weak self] in $0 == self?.settings.value.summonHotkey }
+        browseRecorder.toolTip = "Opens a window to search and preview every note, over any app. ⌫ clears it."
+
+        browseClear = NSButton(
+            image: NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Clear")
+                ?? NSImage(),
+            target: self,
+            action: #selector(clearBrowseHotkey)
+        )
+        browseClear.isBordered = false
+        browseClear.contentTintColor = .tertiaryLabelColor
+        browseClear.toolTip = "Clear"
+        browseClear.isHidden = current.browseHotkey == nil
+
+        let browseRow = NSStackView(views: [browseRecorder, browseClear])
+        browseRow.orientation = .horizontal
+        browseRow.spacing = 6
+        form.row("Summon browse notes", browseRow)
 
         // ---- dismiss -----------------------------------------------------------------------
         let toggles = SettingsForm.radio(
@@ -113,12 +144,18 @@ final class GeneralSettingsViewController: NSViewController {
     /// `settings.json` while this window is open, or Restore Defaults on the Shortcuts tab.
     func settingsChanged(_ new: Settings) {
         recorder?.setHotkey(new.summonHotkey)
+        browseRecorder?.setHotkey(new.browseHotkey)
+        browseClear?.isHidden = new.browseHotkey == nil
         if let index = Settings.NoteOrder.allCases.firstIndex(of: new.noteOrder) {
             noteOrder?.selectItem(at: index)
         }
     }
 
     // MARK: - Actions
+
+    @objc private func clearBrowseHotkey() {
+        browseRecorder.clear()
+    }
 
     @objc private func dismissModeChanged(_ sender: NSButton) {
         settings.update { $0.dismissMode = sender.tag == 0 ? .sameHotkeyToggles : .escapeOnly }

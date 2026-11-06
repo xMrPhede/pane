@@ -52,6 +52,16 @@ public struct Settings: Codable, Equatable, Sendable {
 
     public var dismissMode: DismissMode
 
+    /// The second global hotkey: "Summon Browse Notes", which opens the browse window from anywhere:
+    /// every note in a list, with the selected one previewed beside it.
+    ///
+    /// **Nil by default, on purpose.** A global hotkey is taken from every other app on the machine
+    /// the moment Pane registers it, so a second one Pane claims unasked is a collision waiting for
+    /// somebody's muscle memory. The reference ships its note search unbound for the same reason.
+    /// Recorded on the General tab, beside the summon hotkey, which is the other key that has to
+    /// work while Pane is not frontmost.
+    public var browseHotkey: Hotkey?
+
     // MARK: In-pane shortcuts
 
     /// The shortcuts that work inside a pane, keyed by action — design frame 3c's table.
@@ -316,6 +326,7 @@ public struct Settings: Codable, Equatable, Sendable {
         recentlyDeletedDays: Int = 30,
         summonHotkey: Hotkey = .defaultSummon,
         dismissMode: DismissMode = .sameHotkeyToggles,
+        browseHotkey: Hotkey? = nil,
         shortcuts: [String: String] = Settings.standardShortcuts,
         launchAtLogin: Bool = false,
         showMenuBarIcon: Bool = true,
@@ -336,6 +347,7 @@ public struct Settings: Codable, Equatable, Sendable {
         self.recentlyDeletedDays = recentlyDeletedDays
         self.summonHotkey = summonHotkey
         self.dismissMode = dismissMode
+        self.browseHotkey = browseHotkey
         self.shortcuts = shortcuts
         self.launchAtLogin = launchAtLogin
         self.showMenuBarIcon = showMenuBarIcon
@@ -364,6 +376,16 @@ public struct Settings: Codable, Equatable, Sendable {
             try c.decodeIfPresent(Int.self, forKey: .recentlyDeletedDays) ?? d.recentlyDeletedDays
         summonHotkey = try c.decodeIfPresent(Hotkey.self, forKey: .summonHotkey) ?? d.summonHotkey
         dismissMode = try c.decodeIfPresent(DismissMode.self, forKey: .dismissMode) ?? d.dismissMode
+        // Parsed by hand rather than through `Hotkey`'s own decoder, which falls back to ⌃⌥Space on a
+        // value it cannot read. That is the right forgiveness for the summon key and exactly the
+        // wrong one here: a typo would bind browsing to the summon key and the two would fight over
+        // one press. Unreadable, empty or `null` all mean the same thing: unbound.
+        browseHotkey = (try? c.decodeIfPresent(String.self, forKey: .browseHotkey))
+            .flatMap { $0 }
+            .flatMap { try? Hotkey.parse($0) }
+        // One combination can only be registered once. Bound to the summon key, the browse key would
+        // silently lose that race on every launch, so it is treated as unbound instead.
+        if browseHotkey == summonHotkey { browseHotkey = nil }
         // Merged over the standards rather than replacing them, so a file that names one shortcut
         // still gets all the others — the same forgiveness every other key here gets, and what lets
         // a settings.json written by an older build stay valid as rows are added.

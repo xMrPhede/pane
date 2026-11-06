@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- Same rule as index.html: loaded off disk into a WKWebView with no network, so the bundler
+         inlines every byte. -->
+    <title>Browse Notes</title>
+    <style>__STYLES__</style>
+  </head>
+  <body>
+    <!--
+      The browse window: Pane's "Summon Browse Notes" hotkey. Search on top, the list on the left,
+      the selected note rendered on the right with its Information block, and the action bar floating
+      over the bottom edge. Everything it shows arrives from Swift; it never touches a file.
+    -->
+    <div class="browse" id="browse">
+      <header class="browse__search">
+        <button class="browse__back" id="back" aria-label="Close" tabindex="-1">
+          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M10.25 2.75 5 8l5.25 5.25" fill="none" stroke="currentColor" stroke-width="1.6"
+                  stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+        <input
+          class="browse__input"
+          id="search"
+          type="text"
+          placeholder="Search notes..."
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+          aria-controls="list"
+        />
+      </header>
+
+      <div class="browse__body">
+        <div class="browse__list" id="list" role="listbox" aria-label="Notes"></div>
+        <div class="browse__empty" id="empty" hidden>
+          <svg width="28" height="32" viewBox="0 0 14 16" aria-hidden="true">
+            <path class="doc-icon" d="M2.75 1.25h5.5L11.75 4.75v9a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1v-12.5a1 1 0 0 1 1-1Z M8 1.5v3.5h3.5" />
+          </svg>
+          <div class="browse__empty-title" id="empty-title">No Notes</div>
+          <div class="browse__empty-hint" id="empty-hint"></div>
+        </div>
+        <div class="browse__scroll-thumb" id="scroll-thumb" aria-hidden="true"></div>
+        <div class="browse__divider" aria-hidden="true"></div>
+
+        <section class="browse__detail" aria-label="Preview">
+          <div class="browse__preview" id="preview"></div>
+          <div class="browse__placeholder" id="placeholder" hidden></div>
+          <div class="browse__info" id="info" hidden>
+            <div class="browse__info-heading">Information</div>
+            <div class="browse__info-row"><span>Title</span><span id="info-title"></span></div>
+            <div class="browse__info-row"><span>Modified</span><span id="info-modified"></span></div>
+            <div class="browse__info-row" id="info-created-row"><span>Created</span><span id="info-created"></span></div>
+          </div>
+        </section>
+      </div>
+
+      <footer class="browse__bar">
+        <div class="browse__pill browse__pill--title">
+          <img class="browse__app-icon" id="app-icon" alt="" />
+          <span>Browse Notes</span>
+        </div>
+        <div class="browse__pill browse__pill--actions">
+          <button class="browse__bar-button browse__bar-button--primary" id="primary" tabindex="-1">
+            <span id="primary-label">Open Note</span><kbd>↵</kbd>
+          </button>
+          <button class="browse__bar-button" id="actions-button" tabindex="-1">
+            <span>Actions</span><kbd>⌘</kbd><kbd>K</kbd>
+          </button>
+        </div>
+      </footer>
+
+      <!-- ⌘K: what can be done to the selected note. Floats above the action bar it belongs to. -->
+      <div class="browse__actions" id="actions" role="dialog" aria-label="Actions" hidden>
+        <div class="browse__actions-list" id="actions-list" role="listbox"></div>
+        <input
+          class="browse__actions-search"
+          id="actions-search"
+          type="text"
+          placeholder="Search for actions..."
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+        />
+      </div>
+
+      <div class="browse__toast" id="toast" role="status" aria-live="polite" hidden></div>
+    </div>
+
+    <script>__SCRIPT__</script>
+  </body>
+</html>

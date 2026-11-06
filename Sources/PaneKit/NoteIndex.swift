@@ -218,53 +218,7 @@ public final class NoteIndex {
         locale: Locale = .current
     ) -> [SwitcherRow] {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
-
-        let scored: [(record: NoteRecord, activity: Date, pinned: Bool, match: SwitcherRow.Match?, score: Int)]
-        if trimmed.isEmpty {
-            scored = records.map { record in
-                let noteState = state.note(record.filename)
-                return (
-                    record,
-                    NoteOrdering.activity(
-                        order,
-                        filename: record.filename,
-                        modified: record.modified,
-                        lastOpened: noteState.lastOpened
-                    ),
-                    noteState.isPinned,
-                    nil,
-                    0
-                )
-            }
-        } else {
-            scored = records.compactMap { record in
-                guard let hit = NoteSearch.match(record: record, query: trimmed) else { return nil }
-                let noteState = state.note(record.filename)
-                return (
-                    record,
-                    NoteOrdering.activity(
-                        order,
-                        filename: record.filename,
-                        modified: record.modified,
-                        lastOpened: noteState.lastOpened
-                    ),
-                    noteState.isPinned,
-                    hit.snippet,
-                    hit.score
-                )
-            }
-        }
-
-        // With a query the order is relevance, then recency. Without one it is pins, then recency.
-        let sorted = scored.sorted { a, b in
-            if trimmed.isEmpty {
-                if a.pinned != b.pinned { return a.pinned }
-            } else if a.score != b.score {
-                return a.score > b.score
-            }
-            if a.activity != b.activity { return a.activity > b.activity }
-            return a.record.filename > b.record.filename
-        }
+        let sorted = ranked(query: trimmed, state: state, order: order)
 
         // Bands are landmarks for a recency-ordered scroll. A search result list is ordered by
         // relevance, so a "Today" header over it would be describing an order that isn't there —
@@ -295,6 +249,53 @@ public final class NoteIndex {
                 current: item.record.filename == current ? true : nil,
                 match: item.match
             )
+        }
+    }
+
+    /// One note, ranked: the record, the clock the order reads, its pin, and why it matched.
+    struct Ranked {
+        var record: NoteRecord
+        var activity: Date
+        var pinned: Bool
+        var match: SwitcherRow.Match?
+        var score: Int
+    }
+
+    /// The notes `query` finds, in the order every list of them shows: with a query, relevance then
+    /// recency; without one, pins then recency. Shared by the ⌘P switcher and the browse window so
+    /// the two can never disagree about which note is "most recent" or which one a search ranks first.
+    func ranked(query trimmed: String, state: AppState, order: Settings.NoteOrder) -> [Ranked] {
+        let scored: [Ranked] = records.compactMap { record in
+            var match: SwitcherRow.Match?
+            var score = 0
+            if !trimmed.isEmpty {
+                guard let hit = NoteSearch.match(record: record, query: trimmed) else { return nil }
+                match = hit.snippet
+                score = hit.score
+            }
+            let noteState = state.note(record.filename)
+            return Ranked(
+                record: record,
+                activity: NoteOrdering.activity(
+                    order,
+                    filename: record.filename,
+                    modified: record.modified,
+                    lastOpened: noteState.lastOpened
+                ),
+                pinned: noteState.isPinned,
+                match: match,
+                score: score
+            )
+        }
+
+        return scored.sorted { a, b in
+            if trimmed.isEmpty {
+                if a.pinned != b.pinned { return a.pinned }
+            } else if a.score != b.score {
+                return a.score > b.score
+            }
+            if a.activity != b.activity { return a.activity > b.activity }
+            return a.record.filename > b.record.filename
         }
     }
 }

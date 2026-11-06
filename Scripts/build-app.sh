@@ -53,10 +53,13 @@ if [[ "$SKIP_EDITOR" -eq 0 ]]; then
 	( cd "$ROOT/Editor" && npm run build )
 fi
 
-if [[ ! -f "$ROOT/Editor/dist/index.html" ]]; then
-	echo "error: Editor/dist/index.html is missing — run without --skip-editor" >&2
-	exit 1
-fi
+# Both pages: the pane's editor, and the browse window.
+for page in index.html browse.html; do
+	if [[ ! -f "$ROOT/Editor/dist/$page" ]]; then
+		echo "error: Editor/dist/$page is missing; run without --skip-editor" >&2
+		exit 1
+	fi
+done
 
 # ---- 2. swift binary --------------------------------------------------------------------------
 # `${arr[@]+"${arr[@]}"}` rather than plain `"${arr[@]}"`, and it is not superstition: under `set -u`

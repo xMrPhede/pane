@@ -699,7 +699,9 @@ final class PaneController: NSObject {
         refreshSwitcherIfOpen()
     }
 
-    private func delete(_ filename: String) {
+    /// Moves a note to Recently Deleted. `completion` runs once the move has landed, with whether it
+    /// did. For the browse window, which lists the vault from outside the pane and has to refresh.
+    func delete(_ filename: String, completion: (@MainActor (Bool) -> Void)? = nil) {
         // Write what is on screen before moving the file — decision 10's immediate-flush list had
         // dismiss, blur and quit on it and not this, which made ⌃X the one action that could lose
         // typing. Measured: type a sentence, press ⌃X inside the 500 ms debounce, and the copy that
@@ -717,6 +719,7 @@ final class PaneController: NSObject {
         }
 
         vault.delete(filename) { [weak self] ok in
+            defer { completion?(ok) }
             guard let self, ok else { return }
             self.state.update { $0.notes.removeValue(forKey: filename) }
             self.onPinsChanged?()

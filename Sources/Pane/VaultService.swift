@@ -70,6 +70,35 @@ final class VaultService: @unchecked Sendable {
         }
     }
 
+    /// Refreshes the index and returns the browse window's rows for `query`.
+    ///
+    /// The same one-hop shape as `rows`, for the same reason: the browse window asks on every
+    /// keystroke in its search field.
+    func browseRows(
+        query: String,
+        state: AppState,
+        order: Settings.NoteOrder = .modified,
+        completion: @escaping @MainActor ([BrowseRow]) -> Void
+    ) {
+        queue.async {
+            _ = try? self.index.refresh(vault: self.vaultURL)
+            let rows = self.index.browseRows(query: query, state: state, order: order)
+            DispatchQueue.main.async { MainActor.assumeIsolated { completion(rows) } }
+        }
+    }
+
+    /// One note's text as the index last read it, for the browse window's preview.
+    ///
+    /// Deliberately not `load`: that one stamps the note as just modified in the index, which is
+    /// right for the note the pane opens and wrong for one that is merely being looked at, since every
+    /// arrow key down the list would reorder the list under it.
+    func previewText(_ filename: String, completion: @escaping @MainActor (String?) -> Void) {
+        queue.async {
+            let text = self.index.text(of: filename)
+            DispatchQueue.main.async { MainActor.assumeIsolated { completion(text) } }
+        }
+    }
+
     /// Every note filename currently in the vault, for state pruning and the menu bar.
     func present(completion: @escaping @MainActor (Set<String>) -> Void) {
         queue.async {

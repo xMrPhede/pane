@@ -275,21 +275,26 @@ final class EditorWebView: NSView {
 
     // MARK: - Loading
 
-    /// Where the editor bundle lives: inside the app bundle when packaged, and — so that
-    /// `swift run Pane` is a usable way to iterate — the repository's `Editor/dist` otherwise.
-    static func bundleURL() -> URL? {
+    /// Where a page of the web bundle lives: inside the app bundle when packaged, and (so that
+    /// `swift run Pane` is a usable way to iterate) the repository's `Editor/dist` otherwise.
+    ///
+    /// `page` is the file in `Editor/dist`: `index.html` for the pane, `browse.html` for the browse
+    /// window. `PANE_EDITOR_HTML` overrides the pane's page only; the browse page is looked for
+    /// beside it, so one override still points both windows at one build.
+    static func bundleURL(page: String = "index.html") -> URL? {
         if let resource = Bundle.main.resourceURL {
-            let packaged = resource.appendingPathComponent("Editor/index.html")
+            let packaged = resource.appendingPathComponent("Editor/\(page)")
             if FileManager.default.fileExists(atPath: packaged.path) { return packaged }
         }
         if let override = ProcessInfo.processInfo.environment["PANE_EDITOR_HTML"] {
-            return URL(fileURLWithPath: override)
+            let index = URL(fileURLWithPath: override)
+            return page == "index.html" ? index : index.deletingLastPathComponent().appendingPathComponent(page)
         }
         // Executable at .build/<config>/Pane, so the package root is three levels up.
         let executable = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
         let root = executable.deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
-        let development = root.appendingPathComponent("Editor/dist/index.html")
+        let development = root.appendingPathComponent("Editor/dist/\(page)")
         return FileManager.default.fileExists(atPath: development.path) ? development : nil
     }
 

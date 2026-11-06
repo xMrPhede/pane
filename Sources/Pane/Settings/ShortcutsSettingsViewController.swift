@@ -178,6 +178,8 @@ final class ShortcutsSettingsViewController: NSViewController {
     @objc private func restoreDefaults() {
         settings.update {
             $0.summonHotkey = .defaultSummon
+            // Unbound is its default, so putting the keys back clears it.
+            $0.browseHotkey = nil
             $0.shortcuts = Settings.standardShortcuts
         }
         settingsChanged(settings.value)
