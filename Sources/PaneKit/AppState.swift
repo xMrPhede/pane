@@ -56,13 +56,19 @@ public struct AppState: Codable, Equatable, Sendable {
     /// still carries the key, and decoding ignores it.
     public var availableUpdate: String?
 
+    /// The size the browse window was last left at, so it opens at it again. Only the size: the
+    /// window is summoned centred on the display under the pointer, wherever it was last dragged.
+    /// Nil until it is first resized, which means the reference's 750×474.
+    public var browseSize: StoredSize?
+
     public init(
         schemaVersion: Int = AppState.currentSchemaVersion,
         notes: [String: NoteState] = [:],
         panes: [PaneState] = [],
         vaultEverCreated: Bool = false,
         lastUpdateCheck: Date? = nil,
-        availableUpdate: String? = nil
+        availableUpdate: String? = nil,
+        browseSize: StoredSize? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.notes = notes
@@ -70,6 +76,7 @@ public struct AppState: Codable, Equatable, Sendable {
         self.vaultEverCreated = vaultEverCreated
         self.lastUpdateCheck = lastUpdateCheck
         self.availableUpdate = availableUpdate
+        self.browseSize = browseSize
     }
 
     // Hand-written so a state.json missing any key still decodes — a file written by an older build
@@ -86,6 +93,7 @@ public struct AppState: Codable, Equatable, Sendable {
             try c.decodeIfPresent(Bool.self, forKey: .vaultEverCreated) ?? !notes.isEmpty
         lastUpdateCheck = try c.decodeIfPresent(Date.self, forKey: .lastUpdateCheck)
         availableUpdate = try c.decodeIfPresent(String.self, forKey: .availableUpdate)
+        browseSize = try c.decodeIfPresent(StoredSize.self, forKey: .browseSize)
     }
 }
 

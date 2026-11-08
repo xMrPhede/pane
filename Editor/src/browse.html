@@ -37,8 +37,12 @@
       <div class="browse__body">
         <div class="browse__list" id="list" role="listbox" aria-label="Notes"></div>
         <div class="browse__empty" id="empty" hidden>
-          <svg width="28" height="32" viewBox="0 0 14 16" aria-hidden="true">
-            <path class="doc-icon" d="M2.75 1.25h5.5L11.75 4.75v9a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1v-12.5a1 1 0 0 1 1-1Z M8 1.5v3.5h3.5" />
+          <!-- Drawn at its own size rather than the row icon scaled up, whose stroke and fold
+               doubled into a blot. -->
+          <svg class="browse__empty-icon" width="34" height="40" viewBox="0 0 34 40" aria-hidden="true">
+            <path d="M8.5 3.25h11.4c.73 0 1.43.29 1.95.8l7.6 7.6c.51.52.8 1.22.8 1.95V33.5a3.25 3.25 0 0 1-3.25 3.25H8.5a3.25 3.25 0 0 1-3.25-3.25v-27A3.25 3.25 0 0 1 8.5 3.25Z" />
+            <path d="M20.25 3.5v6.75a2.5 2.5 0 0 0 2.5 2.5H29.5" />
+            <path d="M11.5 20.5h11M11.5 25.5h11M11.5 30.5h6.5" />
           </svg>
           <div class="browse__empty-title" id="empty-title">No Notes</div>
           <div class="browse__empty-hint" id="empty-hint"></div>
@@ -61,7 +65,7 @@
       <footer class="browse__bar">
         <div class="browse__pill browse__pill--title">
           <img class="browse__app-icon" id="app-icon" alt="" />
-          <span>Browse Notes</span>
+          <span>Pane</span>
         </div>
         <div class="browse__pill browse__pill--actions">
           <button class="browse__bar-button browse__bar-button--primary" id="primary" tabindex="-1">

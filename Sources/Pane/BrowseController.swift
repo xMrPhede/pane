@@ -15,7 +15,7 @@ import PaneKit
 final class BrowseController: NSObject {
 
     private let window = BrowseWindow()
-    private let page = BrowseWebView(frame: CGRect(origin: .zero, size: BrowseWindow.size))
+    private let page = BrowseWebView(frame: CGRect(origin: .zero, size: BrowseGeometry.standard))
 
     private let vault: VaultService
     private let state: StateStore
@@ -69,7 +69,7 @@ final class BrowseController: NSObject {
         // A fresh sitting: an empty search and the top of the list, asked for before the window is
         // on screen so the first frame drawn is the right one rather than the last sitting's.
         page.call("reset")
-        window.setFrame(BrowseWindow.frame(on: screen), display: false)
+        window.setFrame(BrowseWindow.frame(on: screen, remembered: state.value.browseSize), display: false)
         raise()
     }
 
@@ -204,5 +204,17 @@ extension BrowseController: NSWindowDelegate {
 
     func windowDidResignKey(_ notification: Notification) {
         PanePanel.resumeFloating()
+    }
+
+    /// Remembers the size for the next summon. On every resize rather than at the end of a live
+    /// one: a window manager sets the size through Accessibility, which is no live resize at all.
+    /// The state store coalesces the writes. Only while visible, so `show`'s own `setFrame` (which
+    /// is reading the remembered size, not choosing one) never writes back a size cut down to fit a
+    /// smaller display.
+    func windowDidResize(_ notification: Notification) {
+        guard window.isVisible else { return }
+        let size = window.frame.size
+        guard state.value.browseSize?.size != size else { return }
+        state.update { $0.browseSize = StoredSize(size) }
     }
 }

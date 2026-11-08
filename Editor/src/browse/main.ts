@@ -79,6 +79,7 @@ function send(message: OutboundMessage): void {
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
+const rootEl = $("browse");
 const searchEl = $<HTMLInputElement>("search");
 const listEl = $("list");
 const emptyEl = $("empty");
@@ -210,6 +211,9 @@ function render(): void {
 
   const empty = rows.length === 0;
   emptyEl.hidden = !empty;
+  // Nothing to list means nothing to preview: the message takes the whole window, not the list's
+  // column beside an empty half.
+  rootEl.toggleAttribute("data-empty", empty);
   if (empty) {
     const query = searchEl.value.trim();
     emptyTitleEl.textContent = query ? "No Results" : "No Notes";
@@ -315,6 +319,14 @@ function updateThumb(show: boolean): void {
 }
 
 listEl.addEventListener("scroll", () => updateThumb(true), { passive: true });
+
+// The window is resizable: a shorter list must still show the selection, and the thumb's track
+// follows the list's height.
+window.addEventListener("resize", () => {
+  const el = rowElement(selected);
+  if (el) scrollIntoView(el);
+  updateThumb(false);
+});
 
 let searchTimer = 0;
 searchEl.addEventListener("input", () => {

@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// One row of the browse window, in the exact shape `Editor/src/browse/main.ts` expects as `BrowseRow`.
@@ -71,18 +72,37 @@ public enum NoteBrowser {
     ///
     /// The system's own relative medium date and medium time, so it reads the way the rest of the
     /// Mac reads in the user's locale, rather than a format string that is only right in English.
+    ///
+    /// **Relative to `now`, not to the clock.** `DateFormatter`'s relative words compare against the
+    /// real current date, which made "Today" disagree with the Today section (decided from `now`)
+    /// whenever the two differ, and made the tests pass only on the day they were written. So a date
+    /// next to `now` is moved by whole days to sit the same distance from the real today before the
+    /// formatter sees it (the time of day is untouched), and any other date is formatted absolutely.
     public static func formatDate(
         _ date: Date,
+        now: Date = Date(),
         locale: Locale = .current,
         timeZone: TimeZone = .current
     ) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = locale
+        calendar.timeZone = timeZone
+        func days(from a: Date, to b: Date) -> Int {
+            calendar.dateComponents([.day], from: calendar.startOfDay(for: a), to: calendar.startOfDay(for: b)).day ?? 0
+        }
+
         let formatter = DateFormatter()
         formatter.locale = locale
         formatter.timeZone = timeZone
         formatter.dateStyle = .medium
         formatter.timeStyle = .medium
+
+        // Today, yesterday and tomorrow are the only days with a word of their own.
+        guard abs(days(from: now, to: date)) <= 1,
+              let shifted = calendar.date(byAdding: .day, value: days(from: now, to: Date()), to: date)
+        else { return formatter.string(from: date) }
         formatter.doesRelativeDateFormatting = true
-        return formatter.string(from: date)
+        return formatter.string(from: shifted)
     }
 }
 
@@ -117,8 +137,8 @@ extension NoteIndex {
                 title: record.title.isEmpty ? NoteBrowser.untitled : record.title,
                 section: section,
                 pinned: item.pinned ? true : nil,
-                modified: NoteBrowser.formatDate(record.modified, locale: locale, timeZone: timeZone),
-                created: created.map { NoteBrowser.formatDate($0, locale: locale, timeZone: timeZone) },
+                modified: NoteBrowser.formatDate(record.modified, now: now, locale: locale, timeZone: timeZone),
+                created: created.map { NoteBrowser.formatDate($0, now: now, locale: locale, timeZone: timeZone) },
                 available: record.text != nil
             )
         }
@@ -131,5 +151,31 @@ extension NoteIndex {
     /// index has never been able to read.
     public func text(of filename: String) -> String? {
         record(filename)?.text
+    }
+}
+
+/// The browse window's size: the reference's 750×474 until it is resized, then whatever it was left
+/// at, within what the display can hold.
+public enum BrowseGeometry {
+
+    /// The reference the window was built to match.
+    public static let standard = CGSize(width: 750, height: 474)
+
+    /// The smallest size whose layout still holds: the 283pt list beside a preview wide enough for
+    /// the Information block, and under the search bar a few lines of preview above that block.
+    /// No maximum: a window manager asked to fill the display gets the whole display.
+    public static let minimum = CGSize(width: 560, height: 360)
+
+    /// The size to summon the window at on a display whose visible area is `visible`. A size kept
+    /// from a larger display is cut down to this one rather than opened half off it.
+    public static func size(remembered: StoredSize?, fitting visible: CGSize) -> CGSize {
+        let wanted = remembered?.size ?? standard
+        func axis(_ wanted: CGFloat, _ minimum: CGFloat, _ available: CGFloat) -> CGFloat {
+            min(max(wanted, minimum), available).rounded()
+        }
+        return CGSize(
+            width: axis(wanted.width, minimum.width, visible.width),
+            height: axis(wanted.height, minimum.height, visible.height)
+        )
     }
 }

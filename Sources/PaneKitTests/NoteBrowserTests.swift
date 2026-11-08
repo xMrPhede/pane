@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import PaneKit
 
@@ -29,7 +30,7 @@ func runNoteBrowserTests() {
 
         Check.test("today reads as the reference reads it") {
             Check.equal(
-                NoteBrowser.formatDate(now, locale: english, timeZone: utc),
+                NoteBrowser.formatDate(now, now: now, locale: english, timeZone: utc),
                 "Today at 6:31:46\u{202F}PM"
             )
         }
@@ -37,9 +38,25 @@ func runNoteBrowserTests() {
         Check.test("an older date carries its full medium date") {
             let july = calendar.date(from: DateComponents(year: 2026, month: 7, day: 26, hour: 16, minute: 13, second: 20))!
             Check.equal(
-                NoteBrowser.formatDate(july, locale: english, timeZone: utc),
+                NoteBrowser.formatDate(july, now: now, locale: english, timeZone: utc),
                 "Jul 26, 2026 at 4:13:20\u{202F}PM"
             )
+        }
+
+        Check.test("yesterday has its word, and the day before has a date") {
+            Check.equal(
+                NoteBrowser.formatDate(now.addingTimeInterval(-86_400), now: now, locale: english, timeZone: utc),
+                "Yesterday at 6:31:46\u{202F}PM"
+            )
+            Check.equal(
+                NoteBrowser.formatDate(now.addingTimeInterval(-2 * 86_400), now: now, locale: english, timeZone: utc),
+                "Nov 4, 2026 at 6:31:46\u{202F}PM"
+            )
+        }
+
+        Check.test("a date that is the real today but not today relative to now is not called Today") {
+            let later = calendar.date(byAdding: .day, value: 30, to: Date())!
+            Check.expect(!NoteBrowser.formatDate(Date(), now: later, locale: english, timeZone: utc).hasPrefix("Today"))
         }
     }
 
@@ -176,6 +193,40 @@ func runNoteBrowserTests() {
             let cleared = try? JSONEncoder().encode(settings)
             let text = cleared.flatMap { String(data: $0, encoding: .utf8) } ?? ""
             Check.expect(!text.contains("browseHotkey"), "unbound writes nothing")
+        }
+    }
+
+    Check.suite("Browse window: size") {
+        let display = CGSize(width: 1512, height: 944)
+
+        Check.test("opens at the reference size until it is resized") {
+            Check.equal(BrowseGeometry.size(remembered: nil, fitting: display), CGSize(width: 750, height: 474))
+        }
+
+        Check.test("then at the size it was left at, with no maximum") {
+            let full = StoredSize(width: 1512, height: 944)
+            Check.equal(BrowseGeometry.size(remembered: full, fitting: display), display)
+        }
+
+        Check.test("never smaller than the layout holds") {
+            let tiny = StoredSize(width: 200, height: 100)
+            Check.equal(BrowseGeometry.size(remembered: tiny, fitting: display), BrowseGeometry.minimum)
+        }
+
+        Check.test("a size kept from a bigger display fits the one it opens on") {
+            let big = StoredSize(width: 2400, height: 1300)
+            Check.equal(BrowseGeometry.size(remembered: big, fitting: display), display)
+        }
+
+        Check.test("is kept in state.json, and an older file without it still decodes") {
+            var state = AppState()
+            state.browseSize = StoredSize(width: 900, height: 600)
+            let data = try? JSONEncoder().encode(state)
+            let back = data.flatMap { try? JSONDecoder().decode(AppState.self, from: $0) }
+            Check.equal(back?.browseSize, StoredSize(width: 900, height: 600))
+
+            let old = try? JSONDecoder().decode(AppState.self, from: Data(#"{"schemaVersion": 1}"#.utf8))
+            Check.expect(old != nil && old?.browseSize == nil)
         }
     }
 }

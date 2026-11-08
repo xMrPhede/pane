@@ -45,8 +45,9 @@ enum BrowseMessage: Equatable {
 /// be a window anyone else manages; the browse window is a place you go to look something up, and
 /// it should behave like every other window on the Mac while you are there: it activates Pane, it
 /// is a standard window to the Accessibility API (so window managers, switchers and Mission Control
-/// see it as one), it lists in the Window menu, it can be dragged, and it stays put when you click
-/// somewhere else until you close it.
+/// see it as one), it lists in the Window menu, it can be dragged and resized (by its edges or by a
+/// window manager, with no maximum), and it stays put when you click somewhere else until you close
+/// it.
 ///
 /// `.titled` is what makes it standard (a borderless window reports no standard subrole), and the
 /// title bar it brings is made invisible: full-size content, transparent bar, hidden title and
@@ -59,15 +60,13 @@ enum BrowseMessage: Equatable {
 @MainActor
 final class BrowseWindow: NSWindow {
 
-    static let size = CGSize(width: 750, height: 474)
-
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 
     init() {
         super.init(
-            contentRect: CGRect(origin: .zero, size: Self.size),
-            styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
+            contentRect: CGRect(origin: .zero, size: BrowseGeometry.standard),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -90,12 +89,16 @@ final class BrowseWindow: NSWindow {
         isExcludedFromWindowsMenu = false
         tabbingMode = .disallowed
         animationBehavior = .documentWindow
+        // A floor, and no ceiling: a window manager asked to fill the display must be able to.
+        contentMinSize = BrowseGeometry.minimum
     }
 
     /// Centred on the display under the pointer, a little above the middle, where a launcher sits,
-    /// so the eye finds it where it already expects one.
-    static func frame(on screen: NSScreen) -> CGRect {
+    /// so the eye finds it where it already expects one. At the size it was last left at, cut down
+    /// to what this display can hold.
+    static func frame(on screen: NSScreen, remembered: StoredSize?) -> CGRect {
         let visible = screen.visibleFrame
+        let size = BrowseGeometry.size(remembered: remembered, fitting: visible.size)
         let x = visible.midX - size.width / 2
         // A third of the free height above it, two thirds below.
         let free = max(0, visible.height - size.height)

@@ -64,6 +64,8 @@ export async function run(_view, _bar, doc) {
   near("the selection starts 7 in", sel.left, 7);
   near("and ends 7 short of the divider", sel.right, 276);
   near("the first row sits under its section header", sel.top, 55 + 32);
+  near("the preview is the reference's 232 tall", doc.getElementById("preview").getBoundingClientRect().height, 232);
+  near("with the Information block 239 below the search", doc.getElementById("info").getBoundingClientRect().top, 55 + 239);
 
   // ---- keyboard --------------------------------------------------------------------------------
   key(doc, { key: "ArrowDown", code: "ArrowDown" });
@@ -165,6 +167,8 @@ export async function run(_view, _bar, doc) {
   expect("no results says so", doc.getElementById("empty-title").textContent, "No Results");
   expect("and ↵ becomes Create Note", doc.getElementById("primary-label").textContent, "Create Note");
   expect("the Information block goes away", doc.getElementById("info").hidden, true);
+  const empty = doc.getElementById("empty").getBoundingClientRect();
+  near("the message is centred in the window, not the list's column", empty.left + empty.width / 2, 375);
   key(doc, { key: "Enter", code: "Enter" });
   expect("↵ creates a note named after the search", lastSent("create"), { type: "create", title: "nothing matches" });
 
