@@ -3,11 +3,14 @@ import PaneKit
 
 /// The window a note lives in.
 ///
-/// Every unusual thing about it exists to satisfy one line of the bar — *summoning never activates
-/// the app or changes the menu bar* — and design frame 1g's six behaviour rules. Measured on this
-/// machine: an `.accessory` app **can** own a key window, and a `.nonactivatingPanel` shown with
-/// `makeKeyAndOrderFront` leaves `frontmostApplication` and `menuBarOwningApplication` with the other
-/// app, which is what the bar actually asks for. So don't check this with `NSApp.isActive`; it lies.
+/// Most unusual things about it come from design frame 1g's six behaviour rules. It used to satisfy
+/// one more line of the bar, *summoning never activates the app or changes the menu bar*, and that
+/// line is gone: a pane nobody can resize with a window manager is worse than a menu bar that shows
+/// Pane while the pane has the keyboard. Measured with Raycast's Window Management (2026-11-13): it
+/// acts on the frontmost app's focused window, and only on a standard one, so a pane that left
+/// another app frontmost, or that reported itself as a system dialog, was never touched. The pane
+/// now activates Pane whenever it takes the keyboard (`PaneController.windowDidBecomeKey`), reports
+/// itself as a standard window, and hands the front back on dismiss.
 ///
 /// Borderless because the pane draws its own rounding, hairline and material in CSS (see the comment
 /// at the top of `pane.css`) — the window is a transparent hole the web view fills.
@@ -18,7 +21,7 @@ final class PanePanel: NSPanel {
     /// but the screen: past the content's measure a wider pane buys gutters rather than longer
     /// lines, and that is the user's trade to make.
     ///
-    /// **460, not 692.** 692 was the width at which `--content-measure` (680px) exactly touches both
+    /// **460, not 692.** 692 was the width at which the old 680px content measure exactly touched both
     /// edges, which made it the widest *useful* pane — and it was then also shipped as the default,
     /// which is a different question nobody had asked. A pane at its own maximum measure is a
     /// document window; measured side by side at 400/460/520/692 with the welcome note in it, 692
@@ -54,8 +57,13 @@ final class PanePanel: NSPanel {
 
     override var canBecomeKey: Bool { true }
 
-    /// Never main. Main window status is what drives the menu bar, and Pane's whole trick is not
-    /// touching it.
+    /// A standard window to Accessibility, which is what window managers act on. AppKit gives a
+    /// borderless non-activating panel `AXSystemDialog`, and Raycast's Left Half and Right Half
+    /// skip those (measured: with Pane frontmost and the pane focused, nothing moved).
+    override func accessibilitySubrole() -> NSAccessibility.Subrole? { .standardWindow }
+
+    /// Never main. Pane does activate while the pane has the keyboard (see the note at the top), but
+    /// main status is a document window's, and nothing the pane does asks for one.
     override var canBecomeMain: Bool { false }
 
     init() {
@@ -66,8 +74,12 @@ final class PanePanel: NSPanel {
             defer: false
         )
 
-        isFloatingPanel = true
-        level = .floating
+        isFloatingPanel = Self.floats
+        level = Self.floatingLevel
+
+        // What the T1 driver finds the pane by. It used to be the only `AXSystemDialog`, and is a
+        // standard window now, like the browse window.
+        setAccessibilityIdentifier("pane")
         // Without this an accessory app's panel vanishes the moment you click back into your editor,
         // which is the opposite of a panel you can type into while reading something else.
         hidesOnDeactivate = false
@@ -319,10 +331,20 @@ extension PanePanel {
     /// Puts them back. Safe to call when nothing stepped aside.
     static func resumeFloating() {
         for pane in NSApp.windows.compactMap({ $0 as? PanePanel }) {
-            pane.isFloatingPanel = true
-            pane.level = .floating
+            pane.isFloatingPanel = floats
+            pane.level = floatingLevel
         }
     }
+
+    /// False when the app was launched with `PANE_NOT_FLOATING` set: a **test mode** in which the
+    /// pane is an ordinary window that other apps' windows can cover. A test run summons the pane
+    /// dozens of times, and at `.floating` it sat over whatever you were doing on the same machine.
+    ///
+    ///     open --env PANE_NOT_FLOATING=1 build/Pane.app
+    static let floats = ProcessInfo.processInfo.environment["PANE_NOT_FLOATING"] == nil
+
+    /// The level the pane and its auto-size pill sit at, `.floating` unless in the test mode.
+    static var floatingLevel: NSWindow.Level { floats ? .floating : .normal }
 
     /// The scoped form, for anything that runs modal.
     static func steppingAside<T>(_ body: () throws -> T) rethrows -> T {

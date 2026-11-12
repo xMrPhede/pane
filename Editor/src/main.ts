@@ -384,7 +384,8 @@ function fenceInputRule(): Extension {
     const state = view.state;
     const line = state.doc.lineAt(from);
     if (from !== line.to) return false;
-    const typed = /^([ \t]*)(```|~~~)$/.exec(line.text + text);
+    // After a list marker too: `- ```` opens a block in the item (158's exception for fences).
+    const typed = /^([ \t]*(?:(?:[-*+]|\d{1,9}[.)])[ \t]+)?)(```|~~~)$/.exec(line.text + text);
     if (!typed) return false;
 
     const after = state.update({ changes: { from, insert: text } }).state;
@@ -397,7 +398,8 @@ function fenceInputRule(): Extension {
     for (let child = fenced.firstChild; child; child = child.nextSibling) if (child.name === "CodeMark") marks += 1;
     if (marks !== 1) return false;
 
-    const indent = typed[1]!;
+    // The block's lines sit at the column its fence starts at: under the item's text, not its marker.
+    const indent = typed[1]!.replace(/[^\t]/g, " ");
     view.dispatch({
       changes: { from, insert: `${text}\n${indent}\n${indent}${typed[2]}` },
       selection: { anchor: from + 2 + indent.length },

@@ -56,6 +56,13 @@ export const cases: Case[] = [
   // before it. It is still the item to the person who pressed the key (144).
   { name: "…and from the whitespace-only line ⇧⏎ itself left (144)", doc: "soft:- one\n  - two\n    |", want: "- one\n  - two\n    \n    |" },
   { name: "⇧⏎ in prose is CodeMirror's plain newline", doc: "soft:hello|", want: FALLTHROUGH },
-  // An item holds text (158): a fence under one is its text, and ⇧⏎ breaks it like any item line.
-  { name: "⇧⏎ under a fence inside an item is the item's soft break (158)", doc: "soft:- one\n  ```\n  co|de\n  ```", want: "- one\n  ```\n  co\n  |de\n  ```" },
+  // An item holds code (158's exception for fences): a fence under one is the item's code block, so
+  // the soft break leaves it alone, and ⇧⏎ out of it goes on with the list.
+  { name: "the soft break leaves a code block inside an item alone", doc: "soft:- one\n  ```\n  co|de\n  ```", want: FALLTHROUGH },
+  { name: "⇧⏎ out of an item's code block is the list's next item", doc: "escape:- one\n  ```\n  co|de\n  ```", want: "- one\n  ```\n  code\n  ```\n- |" },
+  { name: "…out of one opened on the item's own line", doc: "escape:- ```\n  co|de\n  ```", want: "- ```\n  code\n  ```\n- |" },
+  { name: "…the next number after a numbered item", doc: "escape:2. ```\n   co|de\n   ```", want: "2. ```\n   code\n   ```\n3. |" },
+  { name: "…a fresh box after a to-do", doc: "escape:- [x] one\n  ```\n  co|de\n  ```", want: "- [x] one\n  ```\n  code\n  ```\n- [ ] |" },
+  { name: "…at a nested item's indent", doc: "escape:- a\n  - ```\n    co|de\n    ```", want: "- a\n  - ```\n    code\n    ```\n  - |" },
+  { name: "…closing an unclosed one first, at its column", doc: "escape:- ```\n  co|de", want: "- ```\n  code\n  ```\n- |" },
 ];

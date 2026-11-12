@@ -7,7 +7,8 @@
  * `deleteCharBackward` (see the keymap in `main.ts`), which is what handles `> |text` and a
  * one-character delete.
  *
- * The rules and the decisions behind them:
+ * The rules and the decisions behind them, tried in this order except that 6 runs first: in a list
+ * item an empty code line is the item's indent alone, which 1b and 3 would otherwise take.
  *   1. undo a marker break       — a ⏎ that made a marker-only line is undone whole (90, 108)
  *   1b. undo a soft break        — the whitespace-only line ⇧⏎ left goes the same way (144)
  *   2a. never onto a fence       — under a blank line under a fence or a rule, ⌫ stops short of it (161);
@@ -16,7 +17,8 @@
  *   3. join or leave an item     — ⌫ at an item's text start joins the item above, or drops the marker (108, 109, 196)
  *   4. delete a typed marker     — a marker somebody typed loses one character, not the line (109)
  *   5. off a heading             — ⌫ at a heading's text start makes it a paragraph (151)
- *   6. out of a code block       — ⌫ at the start of an empty block removes it; with code, nothing (151)
+ *   6. out of a code block       — ⌫ at the start of an empty block removes it; with code, nothing (151).
+ *                                  The start is the fence's column, the content column in a list item
  *   7. into a code block         — ⌫ at the start of the line after a block steps into its last line (151);
  *                                  an empty one goes on the way (161)
  *   8. delete a rule             — ⌫ at the start of the line after a rule takes the rule (151)
@@ -27,7 +29,7 @@ import { NOOP, rows, type KeyEdit } from "./edit";
 import { joinItemAboveEdit } from "../list-indent";
 import { syntaxTree } from "@codemirror/language";
 import type { SyntaxNode } from "@lezer/common";
-import { fencedBlockAt, fenceOrRuleLine, fencesOf } from "../blocks";
+import { fencedBlockAt, fenceColumn, fenceOrRuleLine, fencesOf } from "../blocks";
 
 const DELETE = "delete.backward";
 
@@ -141,18 +143,27 @@ function removeHeadingMarks(ctx: LineContext): KeyEdit | null {
   return { changes: [{ from: ctx.line.from, to: ctx.head }], anchor: ctx.line.from, userEvent: DELETE };
 }
 
-/** 6. At the start of a block's first line of code: an empty block goes whole; one with code stays. */
+/**
+ * 6. At the start of a block's first line of code: an empty block goes whole; one with code stays.
+ *
+ * "Start" is the fence's own column: 0 at the top level, the item's content column in a list, where
+ * the code lines are indented to sit under the item's text. And what goes is the block, from its
+ * fence on, so `- ```` leaves `- `: the bullet was there before the block was.
+ */
 function leaveEmptyCodeBlock(ctx: LineContext): KeyEdit | null {
-  if (!ctx.atLineStart || !ctx.caret.codeBlock || ctx.line.number < 2) return null;
+  if (!ctx.caret.codeBlock || ctx.line.number < 2) return null;
   const block = fencedBlockAt(ctx.state, ctx.head);
   if (!block) return null;
+  const column = fenceColumn(ctx.state, block);
+  if (ctx.head !== ctx.line.from + column || !/^[ \t]*$/.test(ctx.line.text.slice(0, column))) return null;
   const doc = ctx.state.doc;
   const { first, last, closed } = fencesOf(ctx.state, block);
   if (first !== ctx.line.number - 1) return null;
   // Nothing in it: the block goes, opening fence, closing fence and the line between.
-  if (ctx.line.length === 0 && (closed ? last === ctx.line.number + 1 : last === ctx.line.number)) {
+  if (ctx.line.text.trim() === "" && (closed ? last === ctx.line.number + 1 : last === ctx.line.number)) {
     const to = closed ? doc.line(last).to : ctx.line.to;
-    return { changes: [{ from: doc.line(first).from, to }], anchor: doc.line(first).from, userEvent: DELETE };
+    const from = doc.line(first).from + column;
+    return { changes: [{ from, to }], anchor: from, userEvent: DELETE };
   }
   // With code in it, there is nowhere to go: the fence above is not a place (151).
   return NOOP;
@@ -183,9 +194,12 @@ function deleteRuleAbove(ctx: LineContext): KeyEdit | null {
   return { changes: [{ from: above.from, to: ctx.line.from }], anchor: above.from, userEvent: DELETE };
 }
 
+// `leaveEmptyCodeBlock` first: in a list item an empty code line is the item's indent and nothing
+// else, which is also what a soft break (`undoSoftBreak`) and a content column look like, and those
+// took the line and left the fences behind.
 const table = rows(
-  undoMarkerBreak, undoSoftBreak, stopShortOfFence, joinBackToParagraph, unindentListItem, deleteTypedMarker,
-  removeHeadingMarks, leaveEmptyCodeBlock, stepIntoCodeBlock, deleteRuleAbove
+  leaveEmptyCodeBlock, undoMarkerBreak, undoSoftBreak, stopShortOfFence, joinBackToParagraph, unindentListItem,
+  deleteTypedMarker, removeHeadingMarks, stepIntoCodeBlock, deleteRuleAbove
 );
 
 export function backspace(ctx: LineContext): KeyEdit | null {

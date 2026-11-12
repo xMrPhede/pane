@@ -9,12 +9,12 @@
 // Run:  swift Scripts/smoke/t1.swift            # every item
 //       swift Scripts/smoke/t1.swift caret fence  # by name
 //
-// Needs: the debug build running (Scripts/build-app.sh --debug && open build/Pane.app), the
+// Needs: the debug build running (Scripts/build-app.sh --debug && open build/Pane.app, or with
+// `open --env PANE_NOT_FLOATING=1 build/Pane.app` so the pane never floats over your own work), the
 // terminal trusted for Accessibility, and nothing else claiming the debug hotkey. Notes it makes
 // are moved to ~/.trash-t1-<date> at the end (--keep leaves them).
 //
-// The traps this is written around are all in LAB.md: the pane is AXSystemDialog and is found by
-// subrole; a synthetic key goes to whatever is frontmost, so the pane is checked to be up before
+// The traps this is written around are all in LAB.md: the pane is found by its AXIdentifier, "pane"; a synthetic key goes to whatever is frontmost, so the pane is checked to be up before
 // every burst; the first burst after ⌘N is dropped, so a Backspace warms it up; characters post
 // slower than 45 ms apart or they are lost; a posted mouse event must carry no modifier flags.
 
@@ -68,16 +68,21 @@ do {
 
 func sleepMs(_ ms: Int) { usleep(UInt32(ms) * 1000) }
 
-/// The pane at a real origin, on *this* Space: layer 3, wider than 300, not parked. All three, or
-/// the badge matches. On-screen windows only — `.optionAll` listed a pane on another Space as up,
-/// and every keystroke then went to the terminal (LAB, 2026-09-17).
+/// The pane at a real origin, on *this* Space: the on-screen window whose bounds are the pane's
+/// Accessibility frame, wider than 300 and not parked. On-screen windows only: `.optionAll` listed a
+/// pane on another Space as up, and every keystroke then went to the terminal (LAB, 2026-09-17).
+/// Matched by frame rather than by layer 3, so it also finds the pane in the `PANE_NOT_FLOATING`
+/// test mode, where it is an ordinary layer-0 window like the browse window.
 func paneUp() -> Bool {
+    let pane = paneAXFrame()
+    guard pane.width > 300, pane.minX > -10000 else { return false }
     let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as! [[String: Any]]
     return list.contains { w in
-        guard (w[kCGWindowOwnerPID as String] as? Int32) == pid, (w[kCGWindowLayer as String] as? Int) == 3,
+        guard (w[kCGWindowOwnerPID as String] as? Int32) == pid,
               let b = w[kCGWindowBounds as String] as? [String: Any],
-              let width = b["Width"] as? Double, let x = b["X"] as? Double else { return false }
-        return width > 300 && x > -10000
+              let x = b["X"] as? Double, let y = b["Y"] as? Double,
+              let width = b["Width"] as? Double, let height = b["Height"] as? Double else { return false }
+        return near(CGRect(x: x, y: y, width: width, height: height), pane)
     }
 }
 
@@ -200,19 +205,12 @@ func descend(_ el: AXUIElement, role: String, depth: Int = 0) -> AXUIElement? {
     return nil
 }
 
-/// The largest AXSystemDialog, not the first: the auto-size pill under the pane's bottom edge is one
-/// too, and it is up whenever the pointer is near that edge, after a resize drag above all.
+/// By its identifier, not its subrole: the pane is a standard window now (so window managers act on
+/// it), like the browse window, and the auto-size pill under its bottom edge is a window too.
 func paneElement() -> AXUIElement? {
     let ax = AXUIElementCreateApplication(pid)
-    func area(_ w: AXUIElement) -> CGFloat {
-        guard let s = attr(w, kAXSizeAttribute) else { return 0 }
-        var size = CGSize.zero
-        AXValueGetValue(s as! AXValue, .cgSize, &size)
-        return size.width * size.height
-    }
     return ((attr(ax, kAXWindowsAttribute) as? [AXUIElement]) ?? [])
-        .filter { attr($0, kAXSubroleAttribute) as? String == "AXSystemDialog" }
-        .max { area($0) < area($1) }
+        .first { attr($0, kAXIdentifierAttribute) as? String == "pane" }
 }
 
 func textArea() -> AXUIElement {
@@ -713,6 +711,23 @@ func axVisibleFrame(containing r: CGRect) -> CGRect {
     return CGRect(x: v.minX, y: top - v.maxY, width: v.width, height: v.height)
 }
 
+/// `frontmostApplication` is only refreshed by the run loop, which a script never runs on its own: read
+/// without this, it reports the app that was in front when the script started (LAB, 2026-11-13).
+func frontmost() -> NSRunningApplication? {
+    RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    return NSWorkspace.shared.frontmostApplication
+}
+
+func isPaneFront() -> Bool { frontmost()?.processIdentifier == pid }
+
+/// An up pane that lost the focus to another app gets it back the way a person would: the hotkey,
+/// which focuses an unfocused pane rather than hiding it (180). `summon` does nothing to a pane that
+/// is already up.
+func refocusPane() {
+    if !paneUp() { summon() }
+    if !isPaneFront() { hotkey(); _ = waitFor("Pane in front", timeoutMs: 1500) { isPaneFront() } }
+}
+
 func paneAutoSizing() -> Bool? {
     guard let data = fm.contents(atPath: support + "/state.json"),
           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -774,6 +789,25 @@ func itemResize() {
     summon(); goBack()
     check(item, "…and it comes back at that size", near(paneAXFrame(), half), "\(paneAXFrame())")
 
+    // Raycast's Window Management acts on the frontmost app's focused standard window. The pane
+    // used to leave the other app frontmost and call itself a system dialog, so Raycast never moved
+    // it. Driven through Raycast's own deeplinks, so this is the command a shortcut runs.
+    // From parked, so this is a summon and not whatever state the run left the pane in.
+    dismiss(); sleepMs(300); summon()
+    check(item, "a summoned pane makes Pane the frontmost app", waitFor("Pane in front") { isPaneFront() },
+          frontmost()?.localizedName ?? "none")
+    if NSWorkspace.shared.runningApplications.contains(where: { $0.bundleIdentifier == "com.raycast.macos" }) {
+        let left = CGRect(x: screen.minX, y: screen.minY, width: (screen.width / 2).rounded(), height: screen.height)
+        for (command, want) in [("left-half", left), ("right-half", half)] {
+            NSWorkspace.shared.open(URL(string: "raycast://extensions/raycast/window-management/\(command)")!)
+            let moved = waitFor("Raycast \(command)", timeoutMs: 6000) { near(paneAXFrame(), want) }
+            check(item, "Raycast's \(command) moves the pane", moved, "\(paneAXFrame()) for \(want)")
+            refocusPane()   // Raycast may keep the front for a beat; the next command must find the pane
+        }
+    } else {
+        print("  (Raycast is not running: its Window Management commands are not checked)")
+    }
+
     let small = CGRect(x: screen.minX + 200, y: screen.minY + 100, width: 500, height: 500)
     setPaneAXFrame(small)
     let corner = CGPoint(x: small.maxX - 2, y: small.maxY - 2)
@@ -782,6 +816,11 @@ func itemResize() {
     check(item, "a corner drag goes past the old 724-wide, 1024-tall cap", dragged.width >= 1050 && dragged.height >= 650, "\(dragged)")
 
     setPaneAXFrame(original)
+    let before = frontmost()?.processIdentifier
+    dismiss()
+    check(item, "a dismiss hands the front back", waitFor("front back") { !isPaneFront() },
+          "front was \(before == pid ? "Pane" : "another app") before")
+    sleepMs(300); summon()
     if originalAuto == true, paneAutoSizing() == false {
         toggleAutoSizing()
         _ = waitFor("auto-sizing back on") { paneAutoSizing() == true }

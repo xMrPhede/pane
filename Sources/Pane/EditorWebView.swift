@@ -395,7 +395,7 @@ final class EditorWebView: NSView {
     /// `NSView` returns false here, which is right for a document window — you click it to bring it
     /// forward, and you would not want that click also pressing whatever was under it. **A floating
     /// utility panel is the opposite case.** The pane is summoned over the app you are working in and
-    /// deliberately never activates (decision 9); a click on ⌘K is a click on ⌘K, and spending it on
+    /// sits there while you work in that app; a click on ⌘K is a click on ⌘K, and spending it on
     /// focus means every action costs two clicks and the first one silently does nothing.
     ///
     /// Reported from use, and it presents exactly as AppKit swallowing the click: the button takes

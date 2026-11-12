@@ -288,9 +288,45 @@ final class PaneController: NSObject {
         }
     }
 
+    /// Makes Pane the active app, whenever the pane takes the keyboard: a summon, the hotkey's
+    /// refocus, a click. Window managers act on the frontmost app's focused window, so with another
+    /// app left frontmost, Raycast's Left Half resized that app's window and never the pane.
+    /// `dismiss` hands the front back.
+    ///
+    /// Called from each of the three rather than from `windowDidBecomeKey` alone: a dismissed pane is
+    /// only parked offscreen and stays the key window, so a summon makes it key without it *becoming*
+    /// key, and the notification never fires (measured: Edge stayed frontmost after every summon).
+    ///
+    /// Unconditional: `NSApp.isActive` reads true while the pane is key even with another app
+    /// frontmost (see the note at the top of `PanePanel`), so guarding on it skipped the activation
+    /// in exactly the case it is for.
+    private func takeFront() {
+        if let front = NSWorkspace.shared.frontmostApplication, front != .current { appBeforePane = front }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// The app that was in front when the pane took it, for `handFrontBack`.
+    private var appBeforePane: NSRunningApplication?
+
+    /// Gives the front back to the app the pane was summoned over. `NSApp.deactivate()` alone left
+    /// Pane frontmost with nothing focused (measured: Finder, summon, dismiss, and Pane was still the
+    /// frontmost app), so the keys you typed next went nowhere. Only while Pane is still in front: if
+    /// you have clicked into another app since, that is where you are, and a dismiss must not move you.
+    private func handFrontBack() {
+        defer { appBeforePane = nil }
+        guard NSWorkspace.shared.frontmostApplication == .current else { return }
+        if let previous = appBeforePane, !previous.isTerminated {
+            NSApp.yieldActivation(to: previous)
+            previous.activate()
+        } else {
+            NSApp.deactivate()
+        }
+    }
+
     /// The caret back in a pane that is already up, without starting a new sitting: undo history and
     /// the unsettled name (103) carry on, which a dismiss and a summon would both reset.
     private func refocus() {
+        takeFront()
         panel.makeKeyAndOrderFront(nil)
         // Above another app's floating window at the same level, which ordering alone does not do
         // for a non-activating panel.
@@ -354,6 +390,7 @@ final class PaneController: NSObject {
         )
 
         panel.summon(at: frame)
+        takeFront()
         // Decision 41: the chrome follows the cursor, and summoning moves the pane rather than the
         // cursor — so a pane that opens under a stationary pointer gets no `mouseenter` and would
         // sit dimmed until the mouse moved. Only Swift knows the new frame and the pointer at once.
@@ -416,10 +453,9 @@ final class PaneController: NSObject {
         editor.call("setFocused", [false])
         stopTrackingResizeEdge()
 
-        // Hands the front back to whatever was there. Summoning never activated the app — measured:
-        // `frontmostApplication` stays with the other app throughout — so in the common case this is
-        // a no-op, and in the case where a click into the pane *did* activate us, it is the fix.
-        if NSApp.isActive { NSApp.deactivate() }
+        // The pane activates Pane whenever it takes the keyboard (`takeFront`, for window managers),
+        // so this is what returns you to the app you summoned it over.
+        handFrontBack()
     }
 
     private func rememberFrame() {
@@ -999,8 +1035,8 @@ final class PaneController: NSObject {
         let prefix = hasTimestamp ? String(chars.prefix(NoteFilename.timestampWidth + 1)) : ""
         let editable = String(stem.dropFirst(prefix.count))
 
-        // A dialog you have to type into has to be reachable, and Pane never activates on its own —
-        // so this joins Settings and the vault chooser as a place where it does. `steppingAside` is
+        // A dialog you have to type into has to be reachable. The pane has usually activated Pane
+        // already (`windowDidBecomeKey`), but a dialog must not depend on that. `steppingAside` is
         // decision 91: the pane floats above everything, including this, until it is told not to.
         NSApp.activate(ignoringOtherApps: true)
 
@@ -1862,7 +1898,7 @@ extension PaneController: NSWindowDelegate {
     /// Watches the pointer only while the pane is on screen.
     ///
     /// Two monitors because one is not enough: the global one sees events delivered to *other* apps,
-    /// which is where the pointer is most of the time given Pane never activates (decision 9), and
+    /// which is where the pointer is most of the time while you work beside the pane, and
     /// the local one sees events that land on the pane itself. Neither needs a permission — the
     /// accessibility gate is on keyboard taps, not mouse observation.
     private func startTrackingResizeEdge() {
@@ -1977,8 +2013,10 @@ extension PaneController: NSWindowDelegate {
         rememberFrame()
     }
 
+    /// A click into a pane whose app had lost the front. See `takeFront`.
     func windowDidBecomeKey(_ notification: Notification) {
         editor.call("setFocused", [true])
+        takeFront()
     }
 
     func windowDidResignKey(_ notification: Notification) {

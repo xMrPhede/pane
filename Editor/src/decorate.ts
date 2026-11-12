@@ -279,7 +279,12 @@ function blockLines(node: SyntaxNodeRef, w: Walk): void {
     const deco = Decoration.line({ class: blockClass });
     const first = w.doc.lineAt(node.from).number;
     const last = w.doc.lineAt(node.to).number;
-    for (let n = first; n <= last; n++) {
+    // A block opened on a list item's own line, `- ````: that line is the item's, and keeps its
+    // marker. Drawn as code and collapsed like any fence, the bullet went with it, and the block
+    // read as part of the item above.
+    const opensOnItem = name === "FencedCode" &&
+      /\S/.test(w.doc.line(first).text.slice(0, node.from - w.doc.line(first).from));
+    for (let n = opensOnItem ? first + 1 : first; n <= last; n++) {
       w.decorations.push(deco.range(w.doc.line(n).from));
       if (blockClass === "pane-line-code") w.codeLines.add(n);
     }
@@ -293,7 +298,7 @@ function blockLines(node: SyntaxNodeRef, w: Walk): void {
     // caret's line: a collapsed fence is a 10px strip that looks like a blank line and unbounds the block
     // when typed into (decisions 34, 42). Blank lines refuse the same treatment: they are crossed constantly.
     if (name === "FencedCode") {
-      w.decorations.push(fenceLine.range(w.doc.line(first).from));
+      if (!opensOnItem) w.decorations.push(fenceLine.range(w.doc.line(first).from));
       // Only when the last line *is* the closing fence. An unclosed block — `\`\`\`a` typed after
       // the closing one makes it a code line and unbounds the block — has code on its last line,
       // and collapsing that to a strip drew the text across the block's bottom edge (147).

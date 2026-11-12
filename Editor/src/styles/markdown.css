@@ -505,28 +505,34 @@
  * So these four are qualified with `.cm-editor` to outrank anything setting the property at
  * `.cm-line.pane-*` — the list indent is the more specific statement, and a line carrying both
  * classes needs both numbers. The inset comes in as a token so the two never race. */
+/* The item's text column, as a property as well as the padding, so a code block in the item can
+ * start its background there (below). */
 .cm-editor .cm-line.pane-line-li-1 {
-  padding-left: calc(
+  --list-column: calc(
     var(--line-inset, 0px) + var(--list-lead) + var(--list-marker-box) + var(--list-marker-gap)
   );
+  padding-left: var(--list-column);
 }
 .cm-editor .cm-line.pane-line-li-2 {
-  padding-left: calc(
+  --list-column: calc(
     var(--line-inset, 0px) + var(--list-lead) + var(--list-marker-box) + var(--list-marker-gap)
       + var(--list-step)
   );
+  padding-left: var(--list-column);
 }
 .cm-editor .cm-line.pane-line-li-3 {
-  padding-left: calc(
+  --list-column: calc(
     var(--line-inset, 0px) + var(--list-lead) + var(--list-marker-box) + var(--list-marker-gap)
       + 2 * var(--list-step)
   );
+  padding-left: var(--list-column);
 }
 .cm-editor .cm-line.pane-line-li-4 {
-  padding-left: calc(
+  --list-column: calc(
     var(--line-inset, 0px) + var(--list-lead) + var(--list-marker-box) + var(--list-marker-gap)
       + 3 * var(--list-step)
   );
+  padding-left: var(--list-column);
 }
 
 .cm-line.pane-line-code {
@@ -536,6 +542,16 @@
   background: var(--fill-code);
   padding-left: 12px;
   padding-right: 12px;
+}
+
+/* A code block in a list item sits under the item's text: its fill starts at the item's column and
+ * its code 12px inside that, as a top-level block's does at the pane's edge. The list indent above
+ * outranks the 12px, so without this the code sat flush at the column and the fill ran out under
+ * the bullets to the pane's edge. */
+.cm-editor .cm-line.pane-line-code:is(.pane-line-li-1, .pane-line-li-2, .pane-line-li-3, .pane-line-li-4) {
+  padding-left: calc(var(--list-column) + 12px);
+  background: linear-gradient(var(--fill-code), var(--fill-code)) no-repeat var(--list-column) 0 /
+    calc(100% - var(--list-column)) 100%;
 }
 
 .cm-line.pane-line-quote {

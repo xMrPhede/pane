@@ -60,8 +60,8 @@ public enum PanelGeometry {
     /// drag or through a window manager, has no ceiling but the screen.
     ///
     /// The pane used to cap both axes at 724×1024 (decisions 22 and 83), on the argument that past
-    /// the content's 680pt measure a bigger pane buys gutters rather than more note. That is true,
-    /// and it is the user's trade to make: the caps stopped an edge drag dead and turned a window
+    /// the content's 680pt measure (since removed too) a bigger pane buys gutters rather than more
+    /// note. That is the user's trade to make: the caps stopped an edge drag dead and turned a window
     /// manager's "Right Half" into a 724-wide strip on an ultrawide display.
     ///
     /// What survives is the case that had no other answer: on a rotated 1080×1920 display a pane

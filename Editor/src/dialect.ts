@@ -9,9 +9,12 @@
  *   1. **A block marker waits for its space.** `#`, `-`, `1.` and `>` on their own are text; `# `,
  *      `- `, `1. ` and `> ` start the block. A rule and a fence have no space in them and still form
  *      on their third character (152).
- *   2. **A list item holds text.** No heading, rule, quote, fence, code block, table or HTML inside
- *      one, and no second list marker on its line: a nested list is made with ⇥, on a line of its
- *      own. A to-do is a bullet's; `1. [ ]` is a number followed by text.
+ *   2. **A list item holds text, and code.** No heading, rule, quote, indented code block, table or
+ *      HTML inside one, and no second list marker on its line: a nested list is made with ⇥, on a
+ *      line of its own. A to-do is a bullet's; `1. [ ]` is a number followed by text. A fenced code
+ *      block is the exception: `- ```` opens one in the item, as it does in CommonMark, Obsidian
+ *      and Typora, with its lines at the item's content column. Code inside a list is something
+ *      people write; a heading inside one is not.
  *      A note's first line is never a rule (159): it separates nothing, and front matter starts so.
  *   3. **A quote holds lists.** Paragraphs, lists and a deeper quote; no heading, rule, fence, code
  *      block, table or HTML.
@@ -180,7 +183,14 @@ export const paneDialect: MarkdownConfig = {
     },
     listRule("BulletList", bulletSize),
     listRule("OrderedList", orderedSize),
-    topLevelOnly("FencedCode"),
+    {
+      // Top level, or in a list item (rule 2's exception). Never in a quote, at any depth.
+      name: "FencedCode",
+      parse(cx, line) {
+        for (let d = 0; d < cx.depth; d++) if (cx.parentType(d).name === "Blockquote") return false;
+        return original("FencedCode")(cx, line);
+      },
+    },
     topLevelOnly("IndentedCode"),
     topLevelOnly("HTMLBlock"),
     {

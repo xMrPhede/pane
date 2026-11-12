@@ -1193,36 +1193,116 @@ function applyQuote(view: EditorView): void {
  * selection mid-sentence would write three backticks into the middle of a paragraph and render as
  * literal text. With no selection it opens an empty block and puts the caret inside it, which is
  * what the button is for most of the time.
+ *
+ * **In a list item the block is the item's** (158's exception for fences): its fences and lines sit
+ * at the item's content column, so the list goes on around it. Fencing the whole line at column 0
+ * wrapped the bullet itself and ended the list, which read as code blocks not working in lists.
  */
 function applyCodeBlock(view: EditorView): void {
   // Inside one already: take the fences off rather than wrapping the block in a second block,
   // which is what every other button on this bar now does when it is drawn pressed.
   const fenced = enclosingNode(view.state, "FencedCode");
   if (fenced) {
-    const doc = view.state.doc;
-    const first = doc.lineAt(fenced.from);
-    const last = doc.lineAt(Math.min(fenced.to, doc.length));
-    view.dispatch({
-      changes: [
-        { from: first.from, to: Math.min(first.to + 1, doc.length) },
-        { from: Math.max(last.from - 1, first.from), to: last.to },
-      ],
-      userEvent: "input",
-    });
+    unwrapCodeBlock(view, fenced);
     view.focus();
     return;
   }
 
   const { from, to } = view.state.selection.main;
-  const first = view.state.doc.lineAt(from);
-  const last = view.state.doc.lineAt(to);
-  const body = view.state.doc.sliceString(first.from, last.to);
+  const doc = view.state.doc;
+  const first = doc.lineAt(from);
+  const last = doc.lineAt(to);
+  if (first.number === last.number && fenceInItem(view, first)) return;
 
+  const body = view.state.doc.sliceString(first.from, last.to);
   view.dispatch({
     changes: { from: first.from, to: last.to, insert: "```\n" + body + "\n```" },
     // Inside the block: past the opening fence and its newline.
     selection: { anchor: first.from + 4 + body.length },
     scrollIntoView: true,
+  });
+}
+
+/** ⌥⌘C on one line of a list item. False when the line is not in one, and the block is ordinary. */
+function fenceInItem(view: EditorView, line: Line): boolean {
+  const fence = "```";
+  const item = /^([ \t]*)((?:[-*+]|\d{1,9}[.)])[ \t]+)(\[[ xX]\][ \t]+)?/.exec(line.text);
+  if (item) {
+    const lead = item[1]! + item[2]!;
+    const pad = " ".repeat(lead.length);
+    if (item[3]) {
+      // A to-do: a fence after its box is text, so the block opens under the item, empty.
+      const insert = `\n${pad}${fence}\n${pad}\n${pad}${fence}`;
+      view.dispatch({
+        changes: { from: line.to, insert },
+        selection: { anchor: line.to + 1 + pad.length + fence.length + 1 + pad.length },
+        scrollIntoView: true,
+      });
+      return true;
+    }
+    // The item's text becomes its code; an empty item opens an empty block.
+    const body = line.text.slice(lead.length);
+    const at = line.from + lead.length;
+    view.dispatch({
+      changes: { from: at, to: line.to, insert: `${fence}\n${pad}${body}\n${pad}${fence}` },
+      selection: { anchor: at + fence.length + 1 + pad.length + body.length },
+      scrollIntoView: true,
+    });
+    return true;
+  }
+
+  // A line under an item's text, at its content column: the fences go at that column.
+  const indent = /^[ \t]+/.exec(line.text)?.[0];
+  if (!indent) return false;
+  let node: SyntaxNode | null = syntaxTree(view.state).resolveInner(line.from + indent.length, 1);
+  while (node && node.name !== "ListItem") node = node.parent;
+  if (!node) return false;
+  const body = line.text.slice(indent.length);
+  view.dispatch({
+    changes: { from: line.from, to: line.to, insert: `${indent}${fence}\n${indent}${body}\n${indent}${fence}` },
+    selection: { anchor: line.from + indent.length + fence.length + 1 + indent.length + body.length },
+    scrollIntoView: true,
+  });
+  return true;
+}
+
+/**
+ * Takes a block's fences off. One that opens on an item's own line, `- ````, gives the item back:
+ * its first line of code becomes the item's text again, after the marker, and the rest stay under
+ * it as the item's continuation lines.
+ */
+function unwrapCodeBlock(view: EditorView, fenced: { from: number; to: number }): void {
+  const doc = view.state.doc;
+  const first = doc.lineAt(fenced.from);
+  const column = fenced.from - first.from;
+  const prefix = first.text.slice(0, column);
+
+  // Closed when a later line is a fence at the block's column; otherwise the block runs to its end.
+  const end = doc.lineAt(Math.min(fenced.to, doc.length));
+  const closer = end.number > first.number && /^[ \t]*(`{3,}|~{3,})[ \t]*$/.test(end.text) ? end : null;
+
+  if (/\S/.test(prefix)) {
+    const lines: string[] = [];
+    const lastCode = closer ? closer.number - 1 : end.number;
+    for (let n = first.number + 1; n <= lastCode; n++) lines.push(doc.line(n).text);
+    const head = (lines.shift() ?? "").slice(column);
+    const text = prefix + head + (lines.length ? "\n" + lines.join("\n") : "");
+    const to = closer ? closer.to : end.to;
+    view.dispatch({
+      changes: { from: first.from, to, insert: text },
+      selection: { anchor: first.from + prefix.length + head.length },
+      userEvent: "input",
+    });
+    return;
+  }
+
+  const last = closer ?? end;
+  view.dispatch({
+    changes: [
+      { from: first.from, to: Math.min(first.to + 1, doc.length) },
+      ...(closer ? [{ from: Math.max(last.from - 1, first.from), to: last.to }] : []),
+    ],
+    userEvent: "input",
   });
 }
 

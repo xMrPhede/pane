@@ -32,7 +32,7 @@
 
 const KEYCODE = {
   Enter: 13, Tab: 9, Backspace: 8, ArrowUp: 38, ArrowDown: 40,
-  ArrowLeft: 37, ArrowRight: 39, Escape: 27,
+  ArrowLeft: 37, ArrowRight: 39, Escape: 27, c: 67,
 };
 
 /**
@@ -626,7 +626,6 @@ export function runTypedLists(view, doc) {
   oneItem("(158) `>` on a bullet", () => d.type("- > x"), "- > x", "pane-line-quote");
   oneItem("(158) `>` on a numbered item", () => d.type("1. > x"), "1. > x", "pane-line-quote");
   oneItem("(158) `#` on a bullet", () => d.type("- # x"), "- # x", "pane-line-h1");
-  oneItem("(158) a fence on a bullet", () => d.type("- ```"), "- ```", "pane-line-code");
   oneItem("(158) `[] ` on a bullet stays text", () => d.type("- [] x"), "- [] x", null);
   oneItem("(158) `[] ` on a numbered item stays text", () => d.type("1. [] x"), "1. [] x", null);
   oneItem("(158) `[x] ` on a numbered item is text, not a box", () => d.type("1. [x] x"), "1. [x] x", "pane-task", 1);
@@ -1344,9 +1343,9 @@ export function runBlockEdges(view, doc) {
   // Only that it opens nothing: the backtick pairing already makes a hand-typed closer four long,
   // which closes the block just the same.
   r.check("(160) ``` that closes an open block opens no new one", 3, view.state.doc.lines, show(d.text()));
-  // A list item holds text (158), so there is no block to complete.
+  // A list item holds code too (158's exception for fences): the block completes in the item.
   d.reset(); d.type("- ```");
-  r.check("(160) ``` in a list item is text", "- ```", d.text(), "- ```");
+  r.check("(160) ``` in a list item completes a block in it", "- ```\n  \n  ```", d.text(), "- ```");
   // ⌫ on the new empty code line takes the whole block (151).
   d.reset(); d.type("a"); d.press("Enter"); d.type("```"); d.press("Backspace");
   r.check("(160) ⌫ on the empty code line takes the block", false, d.text().includes("```"), show(d.text()));
@@ -3075,13 +3074,162 @@ export async function runComposition(view, doc) {
   return r;
 }
 
+// ------------------------------------------------------------------------------------------------
+// Code inside a list item
+// ------------------------------------------------------------------------------------------------
+
+/**
+ * A fenced block belongs to the list item it is written in: its fences and its lines sit at the
+ * item's content column, so the list goes on around it. Every way of making one is here, typed and
+ * by ⌥⌘C, at each kind of item, and each case also reads what is drawn: a code line that is not
+ * drawn as code, or a block that broke the list in two, is the bug as a person meets it.
+ */
+export function runCodeInLists(view, doc) {
+  const r = recorder("code in lists");
+  const d = driver(view, doc);
+  const i = inspector(view, doc);
+  const codeBlock = () => d.press("c", { metaKey: true, altKey: true });
+  const lists = () => {
+    let count = 0;
+    for (const v of view.state.values) if (v && v.tree && typeof v.tree.iterate === "function") {
+      v.tree.iterate({ enter: (node) => { if (node.name === "BulletList" || node.name === "OrderedList") count += 1; } });
+      break;
+    }
+    return count;
+  };
+  const isCode = (n) => i.lineEl(n).classList.contains("pane-line-code");
+  const inItem = (n) => /pane-line-li-\d/.test(i.lineEl(n).className);
+  const head = () => view.state.selection.main.head;
+
+  // --- typed ------------------------------------------------------------------------------------
+  // 160 in an item: the backtick that makes the fence writes the block, at the item's content column.
+
+  d.reset();
+  d.type("- a"); d.press("Enter"); d.type("```");
+  r.check("``` on a new bullet completes a code block in the item",
+    "- a\n- ```\n  \n  ```", d.text(), "- a ⏎ ```");
+  r.check("…with the caret on its code line, at the content column", "- a\n- ```\n  ".length, head(), "- a ⏎ ```");
+  d.type("code");
+  r.check("…where typing is drawn as code", true, isCode(3), i.lineEl(3).className);
+  r.check("…inside the item", true, inItem(3), i.lineEl(3).className);
+  r.check("…in one list", 1, lists());
+  // What is drawn: the item that holds the block keeps its bullet, and the block sits under its text.
+  d.at("code", 0);   // the caret off the fence's line, so the fence is drawn as it is at rest
+  r.check("the item opening the block keeps its bullet", true,
+    !!i.lineEl(2).querySelector(".pane-list-marker"), i.lineEl(2).innerHTML.slice(0, 120));
+  r.check("…on a full line, not a collapsed fence strip", false,
+    i.lineEl(2).classList.contains("pane-line-fence") || isCode(2), i.lineEl(2).className);
+  const pad = (n) => parseFloat(getComputedStyle(i.lineEl(n)).paddingLeft);
+  r.check("…and the code sits 12px inside the item's text column", pad(1) + 12, pad(3),
+    `${pad(1)} / ${pad(3)}`);
+  r.check("…its fill starting at that column, not under the bullet", `${pad(1)}px 0px`,
+    getComputedStyle(i.lineEl(3)).backgroundPosition, getComputedStyle(i.lineEl(3)).backgroundPosition);
+  d.at("code", 4);   // back to where the typing left it
+  d.press("Enter"); d.type("more");
+  r.check("⏎ on a code line in an item stays in the code, at the column",
+    "- a\n- ```\n  code\n  more\n  ```", d.text(), "… code ⏎ more");
+  r.check("…drawn as code", true, isCode(4), i.lineEl(4).className);
+  d.press("Enter", { shiftKey: true });
+  r.check("⇧⏎ out of the block goes on with the list",
+    "- a\n- ```\n  code\n  more\n  ```\n- ", d.text(), "… more ⇧⏎");
+  d.type("b");
+  r.check("…as an item of the same list", 1, lists());
+
+  d.reset();
+  d.type("- a"); d.press("Enter", { shiftKey: true }); d.type("```"); d.type("x");
+  r.check("``` under an item's text, by ⇧⏎, is the item's code block",
+    "- a\n  ```\n  x\n  ```", d.text(), "- a ⇧⏎ ``` x");
+  r.check("…drawn as code", true, isCode(3), i.lineEl(3).className);
+  r.check("…inside the item", true, inItem(3), i.lineEl(3).className);
+
+  d.reset();
+  d.type("1. a"); d.press("Enter"); d.type("```"); d.type("x"); d.press("Enter"); d.type("y");
+  r.check("A numbered item's block sits at the item's wider column, and ⏎ stays in it",
+    "1. a\n2. ```\n   x\n   y\n   ```", d.text(), "1. a ⏎ ``` x ⏎ y");
+  r.check("…drawn as code", true, isCode(4), i.lineEl(4).className);
+  d.press("Enter", { shiftKey: true });
+  r.check("…and ⇧⏎ out of it numbers the next item",
+    "1. a\n2. ```\n   x\n   y\n   ```\n3. ", d.text(), "… y ⇧⏎");
+
+  d.reset();
+  d.type("- a"); d.press("Enter"); d.press("Tab"); d.type("```"); d.type("x"); d.press("Enter"); d.type("y");
+  r.check("A nested bullet's block sits at the nested column, and ⏎ stays in it",
+    "- a\n  - ```\n    x\n    y\n    ```", d.text(), "- a ⏎ ⇥ ``` x ⏎ y");
+  r.check("…drawn as code", true, isCode(4), i.lineEl(4).className);
+
+  d.reset();
+  d.type("- a"); d.press("Enter"); d.type("```"); d.press("Backspace");
+  r.check("⌫ on the empty code line takes the block, and the bullet stays", "- a\n- ", d.text(), "- a ⏎ ``` ⌫");
+
+  d.reset();
+  d.type("- [ ] ```");
+  // Text, not a block: the backtick pairing may add a fourth, as it does in any text.
+  r.check("``` after a to-do's box is the to-do's text, not a block", 1, view.state.doc.lines, show(d.text()));
+  r.check("…and nothing is drawn as code", false, isCode(1), i.lineEl(1).className);
+
+  d.reset();
+  d.type("> ```");
+  r.check("``` in a quote is still text (158, rule 3)", "> ```", d.text(), "> ```");
+
+  // --- ⌥⌘C ---------------------------------------------------------------------------------------
+
+  d.reset();
+  d.type("- a"); codeBlock();
+  r.check("⌥⌘C on a bullet makes its text the item's code block",
+    "- ```\n  a\n  ```", d.text(), "- a ⌥⌘C");
+  r.check("…drawn as code", true, isCode(2), i.lineEl(2).className);
+  r.check("…inside the item", true, inItem(2), i.lineEl(2).className);
+  r.check("…with the caret after the text, inside the block", "- ```\n  a".length, head(), "- a ⌥⌘C");
+  codeBlock();
+  r.check("…and ⌥⌘C again gives the bullet back", "- a", d.text(), "- a ⌥⌘C ⌥⌘C");
+
+  d.reset();
+  d.type("- a"); d.press("Enter"); codeBlock();
+  r.check("⌥⌘C on an empty bullet opens an empty block in it",
+    "- a\n- ```\n  \n  ```", d.text(), "- a ⏎ ⌥⌘C");
+  r.check("…with the caret on its empty line, at the content column", "- a\n- ```\n  ".length, head(), "- a ⏎ ⌥⌘C");
+  d.type("x");
+  r.check("…where typing is code", true, isCode(3), i.lineEl(3).className);
+  r.check("…in one list", 1, lists());
+
+  d.reset();
+  d.type("- a"); d.press("Enter"); d.press("Tab"); d.type("b"); codeBlock();
+  r.check("⌥⌘C on a nested bullet fences at the nested column",
+    "- a\n  - ```\n    b\n    ```", d.text(), "- a ⏎ ⇥ b ⌥⌘C");
+  r.check("…drawn as code", true, isCode(3), i.lineEl(3).className);
+
+  d.reset();
+  d.type("1. a"); codeBlock();
+  r.check("⌥⌘C on a numbered item fences at its column",
+    "1. ```\n   a\n   ```", d.text(), "1. a ⌥⌘C");
+
+  d.reset();
+  d.type("- [ ] a"); codeBlock();
+  r.check("⌥⌘C on a to-do keeps its text and opens the block under it (a fence after the box is text)",
+    "- [ ] a\n  ```\n  \n  ```", d.text(), "- [ ] a ⌥⌘C");
+  r.check("…drawn as code", true, (d.type("x"), isCode(3)), i.lineEl(3).className);
+
+  d.load("- a\n- b\n- c");
+  view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
+  codeBlock();
+  r.check("⌥⌘C over a whole list fences the list, items and all",
+    "```\n- a\n- b\n- c\n```", d.text(), "select - a - b - c, ⌥⌘C");
+
+  d.reset();
+  d.type("plain"); codeBlock();
+  r.check("⌥⌘C outside a list is unchanged", "```\nplain\n```", d.text(), "plain ⌥⌘C");
+
+  return r;
+}
+
 export async function run(view, bar, doc) {
   const failures = [];
   let checked = 0;
   // An instrument reports; it does not fall over. A section that throws is itself a finding, and
   // the sections after it still have to run.
   for (const suite of [runTypedLists, runListStructure, runListGeometry, runLineBreaks,
-                       runConstructs, runDegradation, runSelectionReveal, runNoJump, runBlockEdges, runGestures, runComposition]) {
+                       runConstructs, runDegradation, runSelectionReveal, runNoJump, runBlockEdges, runGestures, runComposition,
+                       runCodeInLists]) {
     try {
       const result = await suite(view, doc, bar);
       checked += result.checked;

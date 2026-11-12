@@ -15,9 +15,9 @@
 import { syntaxTree } from "@codemirror/language";
 import type { SyntaxNode } from "@lezer/common";
 import type { LineContext } from "./context";
-import { delegateWhen, FENCE_OPENING, keyCommand } from "./context";
+import { delegateWhen, keyCommand } from "./context";
 import { chain, rows, type KeyEdit } from "./edit";
-import { fencesOf } from "../blocks";
+import { fencesOf, nextItemMarker } from "../blocks";
 import { continueMarkup, exitEmptyBlockquote, exitListToParagraph, pushHeadingDown } from "./enter";
 
 const INPUT = "input";
@@ -47,7 +47,19 @@ export function escapeCodeBlock(ctx: LineContext): KeyEdit | null {
   // the closing fence goes under the caret's own line, and what follows is prose again.
   const last = closed ? doc.lineAt(Math.min(block.to, ctx.docLength)) : doc.line(ctx.line.number);
 
-  const fence = closed ? "" : `\n${FENCE_OPENING.exec(first.text)?.[1] ?? "\`\`\`"}`;
+  // Read at the block's own column, so `- ```` is understood, and the closer indented to match it.
+  const column = block.from - first.from;
+  const opener = /^(`{3,}|~{3,})/.exec(first.text.slice(column))?.[1] ?? "\`\`\`";
+  const fence = closed ? "" : `\n${" ".repeat(column)}${opener}`;
+
+  // A block in a list item: out of it is the list's next item, as ⏎ after the item's text would be.
+  // A paragraph break here ended the list, so the code was the last thing the list could hold.
+  const marker = block.name === "FencedCode" ? nextItemMarker(ctx.state, block) : null;
+  if (marker !== null) {
+    const insert = `${fence}\n${marker}`;
+    return { changes: [{ from: last.to, insert }], anchor: last.to + insert.length, userEvent: INPUT, scrollIntoView: true };
+  }
+
   const below = last.number < ctx.docLines ? doc.line(last.number + 1) : null;
   const separator = below && below.text.trim() !== "" ? "\n" : "";
   const insert = `${fence}\n\n${separator}`;

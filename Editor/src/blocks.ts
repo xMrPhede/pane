@@ -142,6 +142,30 @@ export function fencesOf(state: EditorState, node: SyntaxNode): { first: number;
   return { first, last, closed };
 }
 
+/**
+ * Where a fenced block's fence starts on its line, as an offset into the line. 0 at the top level;
+ * in a list item it is the item's content column, past `- ` or `1. ` on the item's own line or past
+ * the indent on a line under it. A code line's "start" for the keys is this column, not the line's.
+ */
+export function fenceColumn(state: EditorState, node: SyntaxNode): number {
+  return node.from - state.doc.lineAt(node.from).from;
+}
+
+/**
+ * The marker a new item takes after the list item holding `node`, or null when it is in no item:
+ * the same bullet, the next number with the same delimiter, a fresh box after a to-do, at the item's
+ * own indent. How ⇧⏎ out of a code block in a list goes on with the list.
+ */
+export function nextItemMarker(state: EditorState, node: SyntaxNode): string | null {
+  let item: SyntaxNode | null = node.parent;
+  while (item && item.name !== "ListItem") item = item.parent;
+  if (!item) return null;
+  const m = /^([ \t]*)(?:([-*+])|(\d+)([.)]))[ \t]+(\[[ xX]\][ \t]+)?/.exec(state.doc.lineAt(item.from).text);
+  if (!m) return null;
+  const marker = m[2] ? `${m[2]} ` : `${Number(m[3]) + 1}${m[4]} `;
+  return `${m[1]}${marker}${m[5] ? "[ ] " : ""}`;
+}
+
 /** The fenced block containing `pos`, or null. */
 export function fencedBlockAt(state: EditorState, pos: number, side: -1 | 1 = -1): SyntaxNode | null {
   let node: SyntaxNode | null = syntaxTree(state).resolveInner(pos, side);

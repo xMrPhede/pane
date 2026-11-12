@@ -144,13 +144,6 @@
   --formatbar-height: 38px;
   --fade-height: 44px;
 
-  /* Fixed width — "width never changes" is rule 2. The measure inside it is narrower still, so long
-   * lines stay readable rather than running the full width of the pane. */
-  --pane-width: 692px;
-  /* The measure exists for a pane dragged wide, not for the default one. At 692 pt it barely binds,
-   * which is the point — 640 px against a 692 pt pane meant the text sat in a 44 px gutter on the
-   * left and a 96 px one on the right, and the pane read as mostly empty. */
-  --content-measure: 680px;
   /* Bottom padding has to clear `--fade-height`, not merely look generous.
    *
    * It was 32px against a 44px fade, so with auto-sizing on — where the pane ends exactly where the

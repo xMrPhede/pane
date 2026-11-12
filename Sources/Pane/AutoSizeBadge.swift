@@ -37,7 +37,8 @@ final class AutoSizeBadge {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
-        panel.level = .floating
+        // The pane's own level, so the pill under it never floats above a pane that does not.
+        panel.level = PanePanel.floatingLevel
         panel.ignoresMouseEvents = true
         panel.isReleasedWhenClosed = false
         // Same rule as the pane (decision 33): it must show up on whatever Space the pane is on.

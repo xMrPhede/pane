@@ -479,11 +479,10 @@ body {
 .pane__scroll {
   height: 100%;
   /* The padding lives on .cm-content, not here — see markdown.css. */
-  /* A measure, not the full pane width: long lines are hard to read, so a pane dragged very wide
-   * keeps its column. `margin: 0 auto` centres it — left-aligned, the measure put all the slack on
-   * the right and the note looked pushed into a corner. */
-  max-width: var(--content-measure);
-  margin: 0 auto;
+  /* The full width of the pane, however wide you make it. There used to be a 680px measure,
+   * centred, on the argument that long lines are hard to read; on a pane resized to half an
+   * ultrawide it left two thirds of the window empty. The width you give the pane is the width
+   * you get to write in. */
   font-size: var(--text-size);
   line-height: var(--line-height);
   color: var(--text-primary);
@@ -493,9 +492,9 @@ body {
 }
 
 /* ---- Footer -----------------------------------------------------------------------------------
- * Exactly one row. The design's own markup is [spacer][word count][spacer][Aa], which centres the
- * count in the space before the toggle rather than in the pane — replicated rather than "corrected",
- * because that asymmetry is what the frames show.
+ * Exactly one row: [side][word count][side [Aa]]. The design's own markup put the toggle after two
+ * plain spacers, which centred the count in the space before the toggle rather than in the pane,
+ * 12px left of the title; the sides now split the pane evenly, so the count sits under the title.
  */
 
 .pane__footer {
