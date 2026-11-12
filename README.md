@@ -89,8 +89,10 @@ Raycast plan details: [pricing](https://www.raycast.com/pricing) and
   <img src="artifacts/pane-actions.png" alt="The action panel, listing actions with their keyboard shortcuts" width="46%">
 </p>
 
-- **Pick up where you left off.** Summon the panel over your current app with a global hotkey.
-  Pane remembers your last note and each note's caret position.
+- **A new note on every summon.** Summon the panel over your current app with a global hotkey and
+  start typing into a fresh note. The one you were in is a <kbd>⌘[</kbd> away, or in <kbd>⌘P</kbd>
+  and the browse window, and Pane remembers each note's caret position. An empty note you dismiss
+  leaves nothing behind.
 - **Write with structure.** Markdown renders as you type. Headings, lists, quotes and code blocks
   never show their symbols, and bold, links and other inline styles show theirs only under the caret.
 - **Stay in one panel.** <kbd>⌘P</kbd> switches notes with recency groups, fuzzy title matching and

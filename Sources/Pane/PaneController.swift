@@ -114,6 +114,10 @@ final class PaneController: NSObject {
     /// One create in flight at a time, for `flush`'s reason: two would make two files.
     private var isMaterialising = false
 
+    /// Which draft is on screen, bumped by every `beginDraft`. A create that lands for an earlier
+    /// draft must not be adopted by a later one (see `materialiseDraft`).
+    private var draftGeneration = 0
+
     /// One mid-session download at a time (decision 105a). FSEvents bursts arrive in twos.
     private var isDownloadingCurrent = false
 
@@ -273,7 +277,7 @@ final class PaneController: NSObject {
             dismissMode: settings.value.dismissMode
         ) {
         case .summon:
-            summon()
+            summonOnNewNote()
         case .bringHere:
             dismiss()
             summon()
@@ -294,6 +298,38 @@ final class PaneController: NSObject {
         editor.focusEditor()
     }
 
+    /// The summon hotkey, the menu bar icon and the Dock icon: **a pane that comes up, comes up on a
+    /// new note.** `SummonNote` has the rule and its two exceptions.
+    func summonOnNewNote() {
+        switch SummonNote.resolve(
+            isUp: isVisible,
+            hasEverOpenedANote: state.value.lastUsedFilename != nil,
+            holdsANote: currentFilename != nil || isDraft
+        ) {
+        case .keep:
+            break
+        case .newNote:
+            // Before the summon, so the pane never comes up showing the previous note for the frame
+            // it takes the empty one to replace it.
+            createNote(title: "")
+        case .firstRun:
+            openLastUsedNote()
+        }
+        summon()
+    }
+
+    /// ⌘N from outside the pane: the menu bar's New Note and the app menu's.
+    ///
+    /// The draft first and the summon second, so the pane never comes up showing the previous note
+    /// for the frame it takes the empty one to replace it.
+    func summonWithNewNote() {
+        createNote(title: "")
+        summon()
+    }
+
+    /// Brings the pane up on whatever note it holds. For callers that choose the note themselves
+    /// straight after (a pinned note, the browse window, the switcher); everything that just wants
+    /// the pane goes through `summonOnNewNote`.
     func summon() {
         // The active display is the one the pointer is on — Spotlight's convention, and the only
         // definition that matches where the user is looking.
@@ -356,10 +392,15 @@ final class PaneController: NSObject {
             showToast(news, dwell: Self.newsDwell)
         }
 
-        // `isDraft` as well as the filename: a draft has no filename by design, and opening the
-        // last-used note over the top of one would throw away whatever had been typed into it.
+        // A summoned pane is never bound to nothing: `flush` returns at its first guard when there
+        // is neither a file nor a draft, so everything typed would be silently thrown away.
+        //
+        // A draft, synchronously, rather than `openLastUsedNote`, which this used to be. Every caller
+        // that reaches here with nothing loaded opens a note of its own straight after, and an async
+        // load of the last-used note racing that open could land second and win: New Note from the
+        // menu bar at first launch would have its fresh draft replaced by an old note.
         if currentFilename == nil, !isDraft {
-            openLastUsedNote()
+            beginDraft()
         }
 
         startTrackingResizeEdge()
@@ -563,6 +604,7 @@ final class PaneController: NSObject {
         bufferText = ""
         baselineHash = nil
         isDraft = true
+        draftGeneration += 1
 
         var pane = paneState
         pane.noteFilename = nil
@@ -603,15 +645,25 @@ final class PaneController: NSObject {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         guard !isMaterialising else { return }
         isMaterialising = true
+        let generation = draftGeneration
 
         vault.create(text: text) { [weak self] result in
             guard let self else { return }
             self.isMaterialising = false
             switch result {
             case .success(let created):
-                // A note may have been opened while the create was in flight, which makes this
-                // draft somebody else's problem — it is already on disk and no longer on screen.
-                guard self.isDraft else { return }
+                // The pane may have moved on while the create was in flight, to a note or to
+                // **another draft**. Either way this one is somebody else's problem now: it is on
+                // disk and no longer on screen.
+                //
+                // `isDraft` alone cannot tell the second case apart, and getting it wrong is a lost
+                // note: type, dismiss, summon (which starts a new draft) inside the create, and the
+                // finished note's filename was handed to the new, empty buffer, whose first write
+                // then emptied the note on disk.
+                guard self.isDraft, self.draftGeneration == generation else {
+                    self.abandonedDraftLanded(created.filename)
+                    return
+                }
                 self.isDraft = false
                 self.adoptDraft(filename: created.filename, hash: created.hash)
             case .failure(let error):
@@ -619,6 +671,24 @@ final class PaneController: NSObject {
                 self.checkVaultStillThere()
             }
         }
+    }
+
+    /// A draft the pane had already left has reached the disk.
+    ///
+    /// It is recorded as opened, so it sorts as the note you were just in. And when what the pane
+    /// moved on to is a new draft, it goes into the visit history too, so ⌘[ from the new note goes
+    /// back to it: the same place the history is in when the create beats the summon, which is
+    /// `adoptDraft`'s doing.
+    ///
+    /// The draft on screen now may have been typed into while this create held the
+    /// `isMaterialising` gate, and that write was turned away rather than queued; it goes now.
+    private func abandonedDraftLanded(_ filename: String) {
+        state.update { $0.recordOpen(filename, at: Date()) }
+        if isDraft {
+            recordVisit(filename)
+            materialiseDraft()
+        }
+        refreshSwitcherIfOpen()
     }
 
     /// Points the pane at the file a draft just became, **without reloading it**.
@@ -1290,6 +1360,13 @@ final class PaneController: NSObject {
     }
 
     func goBack() {
+        // From a draft, Back is the note you were in before it. A draft is never in the history, so
+        // `historyIndex` still points at that note, and stepping back from it would skip it. Every
+        // summon starts a draft, so ⌘[ is how you get back to what you were writing.
+        if isDraft, history.indices.contains(historyIndex) {
+            open(history[historyIndex], recordingHistory: false)
+            return
+        }
         guard historyIndex > 0 else { return }
         historyIndex -= 1
         open(history[historyIndex], recordingHistory: false)

@@ -38,7 +38,11 @@ func check(_ item: String, _ name: String, _ pass: Bool, _ detail: String = "") 
 
 // MARK: - The app
 
-let debugApp = "/Users/colemei/01.code/apps/mydeveloper/pane/build/Pane.app"
+/// `build/Pane.app` in this checkout, found from the script's own path rather than spelled out: a
+/// literal path only ever ran on the machine it was written on.
+let debugApp = URL(fileURLWithPath: #filePath)
+    .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    .appendingPathComponent("build/Pane.app").standardizedFileURL.path
 let support = NSHomeDirectory() + "/Library/Application Support/Pane (Debug)"
 let settings = try! JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: support + "/settings.json"))) as! [String: Any]
 let vault = NSString(string: (settings["vaultPath"] as? String) ?? "~/Pane-scratch").expandingTildeInPath
@@ -96,6 +100,7 @@ enum K {
     static let a: CGKeyCode = 0, b: CGKeyCode = 11, n: CGKeyCode = 45, p: CGKeyCode = 35, k: CGKeyCode = 40
     static let x: CGKeyCode = 7, z: CGKeyCode = 6, space: CGKeyCode = 49
     static let c: CGKeyCode = 8, seven: CGKeyCode = 26, eight: CGKeyCode = 28
+    static let leftBracket: CGKeyCode = 33
 }
 
 /// The one key that has to go through the event tap: Carbon's global hotkey is not listening on a pid.
@@ -154,6 +159,20 @@ func type(_ text: String) {
         }
         sleepMs(55)
     }
+}
+
+/// ⌘[ from the new note every summon starts, back to the note that was open before it.
+func goBack() {
+    needPane()
+    key(K.leftBracket, .maskCommand)
+    _ = waitFor("the previous note") { !paneOnEmptyNote() }
+    sleepMs(300)
+}
+
+/// The pane is on a new, empty note. Read off the chrome rather than the text area, which on an
+/// empty note reports CodeMirror's placeholder ("Start writing…") as its value.
+func paneOnEmptyNote() -> Bool {
+    surface("pane__title") == "Untitled" && surface("pane__footer").hasPrefix("0 ")
 }
 
 /// ⌘N, then the warm-up Backspace the first burst after it needs (LAB, 2026-09-01).
@@ -282,6 +301,40 @@ func itemNewNoteWritesNothing() {
     check(item, "⌘N and only spaces leaves no file", notes() == before)
 }
 
+/// Every summon of a parked pane starts a new note; where you were is ⌘[ away, untouched.
+func itemSummonStartsNewNote() {
+    let item = "summonnew"
+    guard let name = freshNote(item, body: "written before the dismiss") else { return check(item, "the note appeared", false) }
+    settle()
+    let before = read(name) ?? ""
+    dismiss(); settle()
+    let count = notes().count
+    summon()
+    // Waited for rather than read once: right after a launch the web view's accessibility tree can
+    // take a moment to fill in. The note from before the summon would show its own title here.
+    let empty = waitFor("the new note") { paneOnEmptyNote() }
+    check(item, "the summon opens an empty new note", empty, surface("pane__title"))
+    dismiss(); settle()
+    check(item, "…which leaves no file when dismissed unwritten", notes().count == count, "\(count) → \(notes().count)")
+    summon(); goBack()
+    check(item, "⌘[ goes back to the note from before the summon", renderedText().hasPrefix("T1 \(item)"), String(renderedText().prefix(30)))
+    check(item, "…which is unchanged on disk", read(name) == before)
+
+    // Written, dismissed and summoned again straight away: the first note's create can still be on
+    // the vault queue when the new draft starts, and the new draft must not take its file over.
+    summon(); newNote()
+    let stamp = String(Int(Date().timeIntervalSince1970) % 100000)
+    type("T1 \(item) quick \(stamp)")
+    dismiss(); sleepMs(300); summon(); sleepMs(300)
+    type("T1 \(item) second \(stamp)")
+    settle()
+    let first = note(matching: "t1-\(item)-quick-\(stamp)"), second = note(matching: "t1-\(item)-second-\(stamp)")
+    track(first); track(second)
+    check(item, "a note dismissed mid-create keeps its text", (first.flatMap(read) ?? "").hasPrefix("T1 \(item) quick \(stamp)"), first ?? "no file")
+    check(item, "…and the next summon's note is a file of its own", (second.flatMap(read) ?? "").hasPrefix("T1 \(item) second \(stamp)"), second ?? "no file")
+    track(name)
+}
+
 func itemCaretRoundTrip() {
     let item = "caret"
     guard let name = freshNote(item, body: "second line of the note") else { return check(item, "the note appeared", false) }
@@ -291,7 +344,7 @@ func itemCaretRoundTrip() {
     dismiss(); settle()
     let onDisk = read(name) ?? ""
     check(item, "the text is on disk after dismiss", onDisk.hasPrefix("T1 caret") && onDisk.hasSuffix("second line of the note\n"), String(onDisk.prefix(30)).replacingOccurrences(of: "\n", with: "⏎"))
-    summon(); sleepMs(300)
+    summon(); goBack()
     check(item, "the caret is where it was", caretOffset() == offset, "\(String(describing: offset)) → \(String(describing: caretOffset()))")
     let state = try! JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: support + "/state.json"))) as! [String: Any]
     let recorded = ((state["notes"] as? [String: Any])?[name] as? [String: Any])?["caretOffset"] as? Int
@@ -314,7 +367,7 @@ func itemPartialTitleRename() {
     check(item, "it renames as the title is finished, with nothing left behind", renamed, second ?? "no file")
     check(item, "the timestamp does not move", second.map(timestamp) == timestamp(first))
     // Leave the note and come back: the name holds now (103).
-    dismiss(); settle(); summon(); sleepMs(300)
+    dismiss(); settle(); summon(); goBack()
     key(K.up, .maskCommand); key(K.right, .maskCommand); type(" X")
     settle()
     check(item, "after leaving the note the name holds", note(matching: "quarterly-\(stamp)-budget-review") == second && !notes().contains { $0.contains("budget-review-x") })
@@ -375,7 +428,7 @@ func itemFinderRenameFollowed() {
 func itemUndoOnFreshNote() {
     let item = "undo"
     guard let name = freshNote(item, body: "keep me") else { return check(item, "the note appeared", false) }
-    dismiss(); settle(); summon(); sleepMs(300)
+    dismiss(); settle(); summon(); goBack()
     key(K.z, .maskCommand); settle()
     check(item, "⌘Z on a freshly opened note changes nothing", (read(name) ?? "").contains("keep me"))
     type(" more"); settle()
@@ -594,6 +647,7 @@ func itemHotkeyReadsFocus() {
               parked == toggles, parked ? "parked" : "up")
         sleepMs(300)   // past toggle()'s 0.25 s double-delivery guard, or the summon is swallowed
         summon(); sleepMs(300)
+        if parked { goBack() }   // a summon starts a new note, and the pin below is this note's
         if pinned { key(K.p, [.maskCommand, .maskShift]); sleepMs(300) }
     }
     track(name)
@@ -627,6 +681,7 @@ var startedCalculator = false
 
 let items: [(String, () -> Void)] = [
     ("newnote", itemNewNoteWritesNothing),
+    ("summonnew", itemSummonStartsNewNote),
     ("caret", itemCaretRoundTrip),
     ("rename", itemPartialTitleRename),
     ("external", itemExternalEdit),

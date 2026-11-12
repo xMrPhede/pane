@@ -211,7 +211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Pane has no Dock icon by default, but if `showDockIcon` is on, clicking it should summon
     /// rather than do nothing.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        pane?.summon()
+        pane?.summonOnNewNote()
         return true
     }
 
@@ -387,11 +387,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menuBar = MenuBarController(hotkey: settings.value.summonHotkey)
         menuBar.pinnedNotes = { [weak self] in self?.pinnedNotes() ?? [] }
-        menuBar.onShow = { [weak self] in self?.pane.summon() }
-        menuBar.onNewNote = { [weak self] in
-            self?.pane.summon()
-            self?.pane.createNote(title: "")
-        }
+        menuBar.onShow = { [weak self] in self?.pane.summonOnNewNote() }
+        menuBar.onNewNote = { [weak self] in self?.pane.summonWithNewNote() }
         menuBar.onBrowse = { [weak self] in self?.pane.openSwitcher() }
         menuBar.onActions = { [weak self] in self?.pane.openActions() }
         menuBar.onSettings = { [weak self] in self?.openSettingsWindow() }
@@ -632,8 +629,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func newNote() {
         // From the browse window, ⌘N goes to the pane like ↵ does; the window gets out of the way.
         if browse?.isKey == true { browse?.dismiss() }
-        pane?.summon()
-        pane?.createNote(title: "")
+        pane?.summonWithNewNote()
     }
 
     @objc private func browseNotes() {

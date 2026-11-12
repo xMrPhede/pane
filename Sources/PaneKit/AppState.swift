@@ -317,7 +317,8 @@ extension AppState {
         notes.filter(\.value.isPinned).keys.sorted()
     }
 
-    /// The note to open on the next summon: the one most recently opened.
+    /// The note most recently opened: what the pane falls back to when the note it held is deleted
+    /// or missing.
     ///
     /// Reads from `notes` rather than from a dedicated "last used" field so there is one source of
     /// truth — a separate field would be a second place for the answer to be wrong.
