@@ -1437,10 +1437,12 @@ final class PaneController: NSObject {
         guard let screen = panel.screen ?? NSScreen.main else { return }
         let current = panel.rememberedFrame ?? panel.frame
 
+        // Auto-sizing's height stops at a page; a height you hold stops only at the screen.
         let growth = PanelGeometry.grown(
             from: current,
             toContentHeight: desired,
-            visibleFrame: screen.visibleFrame
+            visibleFrame: screen.visibleFrame,
+            followingContent: paneState.autoSizing
         )
         guard abs(growth.frame.height - current.height) >= 1 else { return }
         panel.applyHeight(growth.frame)
@@ -1805,6 +1807,24 @@ extension PaneController: NSWindowDelegate {
     }
 
     func windowDidEndLiveResize(_ notification: Notification) {
+        userChoseSize()
+    }
+
+    /// A size set from outside the app. A window manager (Raycast's Left Half and Right Half,
+    /// Rectangle, Magnet) resizes through Accessibility, which is no live resize, so
+    /// `windowDidEndLiveResize` never hears of it. It is the user choosing a size all the same, and
+    /// it has to stick the way a drag does: without this, auto-sizing put the height back at the
+    /// next keystroke and the size was never remembered.
+    ///
+    /// Every frame change reaches here, so the pane's own are told apart by
+    /// `PanePanel.isPlacingItself`, and a live drag is left to `windowDidEndLiveResize`, which hears
+    /// it once at the end rather than at every step.
+    func windowDidResize(_ notification: Notification) {
+        guard panel.isSummoned, !panel.inLiveResize, !panel.isPlacingItself else { return }
+        userChoseSize()
+    }
+
+    private func userChoseSize() {
         defer { refreshAutoSizeBadge() }
         guard !switcherIsOpen, !actionsIsOpen else { return }
 

@@ -144,7 +144,7 @@ final class AutoSizeBadge {
     /// Whether `point` is within `edgeProximity` of the pane's bottom edge or bottom corners.
     ///
     /// Bottom only. The top edge is the title bar — reaching for it means dragging the window, not
-    /// resizing it — and the sides only change width, which is fixed (decision 22's measure).
+    /// resizing it, and the sides only change width, which auto-sizing never touches.
     static func isNearResizeEdge(_ point: CGPoint, of frame: CGRect) -> Bool {
         let band = frame.insetBy(dx: -edgeProximity, dy: -edgeProximity)
         guard band.contains(point) else { return false }

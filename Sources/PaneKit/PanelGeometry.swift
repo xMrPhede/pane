@@ -45,18 +45,6 @@ public enum PanelGeometry {
     /// Smallest pane worth showing: title bar, one line, footer.
     public static let minimumHeight: CGFloat = 120
 
-    /// Widest the pane may be dragged, and the reason is decision 22's own.
-    ///
-    /// The content has a measure — `--content-measure`, 680px — because long lines are hard to
-    /// read, so past that point a wider pane buys **gutters, not longer lines**. It was unbounded,
-    /// which meant the pane could be dragged to fill a display and show the same column of text
-    /// with several hundred points of empty material either side of it.
-    ///
-    /// 680 plus the content padding, so the widest useful pane is exactly the one where the measure
-    /// touches both edges. The reference caps its width too, and leaves height alone — height is the
-    /// axis that actually carries more note.
-    public static let maximumWidth: CGFloat = 724
-
     /// Narrowest the pane may be. Below this the title bar's buttons and the footer's centred word
     /// count start overlapping each other.
     ///
@@ -68,29 +56,28 @@ public enum PanelGeometry {
     /// 64px and at 320 the label is short by 91.
     public static let minimumWidth: CGFloat = 340
 
-    /// Tallest the pane may be, and the reason is decision 83's own argument arriving on the other
-    /// axis.
+    /// Tallest the pane grows **by itself**, following a note's content. A size you choose, by a
+    /// drag or through a window manager, has no ceiling but the screen.
     ///
-    /// "No maximum height" was decided while every display in view was wider than it was tall, so
-    /// the screen was the ceiling and the screen was a sensible one. A **portrait** display breaks
-    /// that: on a rotated 1080×1920 the pane could grow past 1890pt, which is not more note in any
-    /// useful sense — it is one column of text taller than any reader's eye travels, on a pane whose
-    /// content measure is 680.
+    /// The pane used to cap both axes at 724×1024 (decisions 22 and 83), on the argument that past
+    /// the content's 680pt measure a bigger pane buys gutters rather than more note. That is true,
+    /// and it is the user's trade to make: the caps stopped an edge drag dead and turned a window
+    /// manager's "Right Half" into a 724-wide strip on an ultrawide display.
     ///
-    /// Derived rather than picked (decision 82): `maximumWidth` × √2, the A-series page ratio, so
-    /// the widest allowed pane at its tallest is exactly a page. That lands at 1024, which is above
-    /// the usable height of every landscape display the project has met — so this cap **only ever
-    /// bites on a tall screen**, which is the case that had no answer.
-    public static let maximumHeight: CGFloat = (maximumWidth * 1.41421356).rounded()
+    /// What survives is the case that had no other answer: on a rotated 1080×1920 display a pane
+    /// following a long note would grow past 1890pt, one column taller than any reader's eye travels.
+    /// So auto-sizing still stops at a page, 724 × √2 (the A-series ratio), which is above the usable
+    /// height of every landscape display the project has met and only bites on a tall screen.
+    public static let autoSizeCeiling: CGFloat = 1024
 
-    /// Width into its allowed range.
+    /// Width onto its floor. There is no ceiling: the screen is the only limit (see `clamped`).
     public static func constrainWidth(_ width: CGFloat) -> CGFloat {
-        min(max(width, minimumWidth), maximumWidth)
+        max(width, minimumWidth)
     }
 
-    /// Height into its allowed range. The screen still constrains it further — see `maxHeight`.
+    /// Height onto its floor. The screen still constrains it further: see `maxHeight`.
     public static func constrainHeight(_ height: CGFloat) -> CGFloat {
-        min(max(height, minimumHeight), maximumHeight)
+        max(height, minimumHeight)
     }
 
     /// How much of the title bar has to remain on a screen for the pane to count as reachable.
@@ -107,19 +94,29 @@ public enum PanelGeometry {
     ) -> CGRect {
         let topY = visibleFrame.maxY - visibleFrame.height * firstLaunchTopInsetFraction
         let h = min(max(height, minimumHeight), maxHeight(topY: topY, visibleFrame: visibleFrame))
-        let x = visibleFrame.midX - width / 2
-        return CGRect(x: x.rounded(), y: (topY - h).rounded(), width: width, height: h.rounded())
+        // A size inherited from a bigger display (`restore`'s `lastSize`) can be wider than this one.
+        let w = min(width, visibleFrame.width)
+        let x = visibleFrame.midX - w / 2
+        return CGRect(x: x.rounded(), y: (topY - h).rounded(), width: w.rounded(), height: h.rounded())
     }
 
     // MARK: - Growth
 
     /// Tallest the pane may be with its top edge at `topY`, given the screen it is on.
     ///
-    /// Two ceilings, whichever is lower: the screen's, and `maximumHeight`. The screen's alone was
-    /// the whole rule until a portrait display made it a very poor one.
-    public static func maxHeight(topY: CGFloat, visibleFrame: CGRect) -> CGFloat {
+    /// - Parameter followingContent: the height is auto-sizing's, fitted to a note. Then there are
+    ///   two ceilings, whichever is lower: the screen's less `bottomMargin`, and `autoSizeCeiling`.
+    ///   Otherwise it is a height you hold, and the screen's own bottom edge is the only limit: a
+    ///   window manager's half-screen is the full visible height, and shaving the margin or the
+    ///   ceiling off it would undo what you asked for.
+    public static func maxHeight(
+        topY: CGFloat,
+        visibleFrame: CGRect,
+        followingContent: Bool = true
+    ) -> CGFloat {
+        guard followingContent else { return max(minimumHeight, topY - visibleFrame.minY) }
         let toScreenEdge = topY - (visibleFrame.minY + bottomMargin)
-        return max(minimumHeight, min(maximumHeight, toScreenEdge))
+        return max(minimumHeight, min(autoSizeCeiling, toScreenEdge))
     }
 
     public struct Growth: Equatable, Sendable {
@@ -134,13 +131,17 @@ public enum PanelGeometry {
     /// until the pane is `bottomMargin` from the bottom of the screen, and after that the note
     /// scrolls inside a pane that has stopped moving. Deleting text shrinks it back, so the pane is
     /// always exactly as big as what is in it.
+    ///
+    /// `followingContent` is false for a height you hold (auto-sizing off), which only the screen
+    /// limits (see `maxHeight`).
     public static func grown(
         from current: CGRect,
         toContentHeight desired: CGFloat,
-        visibleFrame: CGRect
+        visibleFrame: CGRect,
+        followingContent: Bool = true
     ) -> Growth {
         let topY = current.maxY
-        let cap = maxHeight(topY: topY, visibleFrame: visibleFrame)
+        let cap = maxHeight(topY: topY, visibleFrame: visibleFrame, followingContent: followingContent)
         let h = min(max(desired, minimumHeight), cap)
         let frame = CGRect(x: current.minX, y: (topY - h).rounded(), width: current.width, height: h.rounded())
         return Growth(frame: frame, scrolls: desired > cap + 0.5)
@@ -234,8 +235,8 @@ public enum PanelGeometry {
         // decisions 115/116's lesson has applied: when something starts working, re-read what was
         // reasoning about it not working.
         if isReachable(remembered, titleBarHeight: titleBarHeight, onAnyOf: [activeVisibleFrame]) {
-            // Size still gets clamped: a frame remembered before a cap existed, or from a larger
-            // display, would otherwise come back bigger than the pane is now allowed to be.
+            // Size still goes onto the floor: a frame remembered before the floor was raised would
+            // otherwise come back with chrome that no longer fits it.
             let width = constrainWidth(remembered.width)
             let height = constrainHeight(remembered.height)
             guard width != remembered.width || height != remembered.height else { return remembered }

@@ -14,9 +14,9 @@ import PaneKit
 @MainActor
 final class PanePanel: NSPanel {
 
-    /// Rule 2's width. Resizing is allowed between `PanelGeometry.minimumWidth` and
-    /// `maximumWidth` — the content has its own measure, so past that a wider pane buys gutters
-    /// rather than longer lines, and it used to be draggable to the full width of a display.
+    /// Rule 2's width. Resizing is allowed from `PanelGeometry.minimumWidth` up, with no ceiling
+    /// but the screen: past the content's measure a wider pane buys gutters rather than longer
+    /// lines, and that is the user's trade to make.
     ///
     /// **460, not 692.** 692 was the width at which `--content-measure` (680px) exactly touches both
     /// edges, which made it the widest *useful* pane — and it was then also shipped as the default,
@@ -24,7 +24,7 @@ final class PanePanel: NSPanel {
     /// document window; measured side by side at 400/460/520/692 with the welcome note in it, 692
     /// reads as one, and the note's structure is lost across 85 characters of line. 460 gives a 416pt
     /// column, about 55 characters — inside the classic comfortable measure, and the shape a person
-    /// actually reaches for. The maximum is untouched: drag it to 724 whenever a note wants it.
+    /// actually reaches for. Drag it wider whenever a note wants it.
     ///
     /// The format bar was the thing to check before moving, and it fits: all sixteen controls at 400,
     /// with room. See decision 129.
@@ -97,11 +97,10 @@ final class PanePanel: NSPanel {
         // count from colliding.
         minSize = NSSize(width: Self.minimumWidth, height: PanelGeometry.minimumHeight)
 
-        // Both axes are capped now. Width past the content's measure is gutters
-        // (`PanelGeometry.maximumWidth`); height had no cap at all until a rotated 1080×1920 display
-        // showed what "the screen is the ceiling" means on a screen that is 1920 tall — see
-        // `PanelGeometry.maximumHeight`, which is derived from the width cap rather than picked.
-        maxSize = NSSize(width: PanelGeometry.maximumWidth, height: PanelGeometry.maximumHeight)
+        // No `maxSize`. It used to be 724×1024, and AppKit applies it to everything that sets the
+        // frame: an edge drag stopped dead at it, and a window manager's "Right Half" on a 3440-wide
+        // display came out a 724-wide strip. The ceiling that is left is auto-sizing's own
+        // (`PanelGeometry.autoSizeCeiling`), and it never limits a size you chose.
 
         applyCollectionBehaviour()
         observeScreenChanges()
@@ -205,6 +204,18 @@ final class PanePanel: NSPanel {
 
     var isSummoned: Bool { onscreenFrame != nil && !parked }
 
+    /// True while the pane is setting its own frame: a summon placing it, or auto-sizing fitting it
+    /// to a note. Read by the controller's `windowDidResize`, which is told about every frame change
+    /// and has to know which ones were somebody else's: a window manager resizing the pane through
+    /// Accessibility is no live resize, so this is the only way to tell it from the pane's own.
+    private(set) var isPlacingItself = false
+
+    private func placingItself(_ body: () -> Void) {
+        isPlacingItself = true
+        defer { isPlacingItself = false }
+        body()
+    }
+
     /// Puts the pane back where it was, on the Space you are on now.
     ///
     /// - Parameter frame: where to appear. Rule 3 — "only a drag moves a pane" — so this is the
@@ -212,7 +223,7 @@ final class PanePanel: NSPanel {
     func summon(at frame: CGRect) {
         onscreenFrame = frame
         parked = false
-        setFrame(frame, display: false)
+        placingItself { setFrame(frame, display: false) }
 
         // Re-assert the collection behaviour on every summon, not just when the setting changes.
         //
@@ -270,12 +281,13 @@ final class PanePanel: NSPanel {
 
     /// Resizes while offscreen or onscreen without losing track of where "onscreen" is.
     func applyHeight(_ frame: CGRect) {
-        if parked {
-            onscreenFrame = frame
-            setContentSize(frame.size)
-        } else {
-            onscreenFrame = frame
-            setFrame(frame, display: true)
+        onscreenFrame = frame
+        placingItself {
+            if parked {
+                setContentSize(frame.size)
+            } else {
+                setFrame(frame, display: true)
+            }
         }
     }
 }

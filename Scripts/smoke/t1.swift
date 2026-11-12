@@ -200,12 +200,19 @@ func descend(_ el: AXUIElement, role: String, depth: Int = 0) -> AXUIElement? {
     return nil
 }
 
+/// The largest AXSystemDialog, not the first: the auto-size pill under the pane's bottom edge is one
+/// too, and it is up whenever the pointer is near that edge, after a resize drag above all.
 func paneElement() -> AXUIElement? {
     let ax = AXUIElementCreateApplication(pid)
-    for w in (attr(ax, kAXWindowsAttribute) as? [AXUIElement]) ?? [] where attr(w, kAXSubroleAttribute) as? String == "AXSystemDialog" {
-        return w
+    func area(_ w: AXUIElement) -> CGFloat {
+        guard let s = attr(w, kAXSizeAttribute) else { return 0 }
+        var size = CGSize.zero
+        AXValueGetValue(s as! AXValue, .cgSize, &size)
+        return size.width * size.height
     }
-    return nil
+    return ((attr(ax, kAXWindowsAttribute) as? [AXUIElement]) ?? [])
+        .filter { attr($0, kAXSubroleAttribute) as? String == "AXSystemDialog" }
+        .max { area($0) < area($1) }
 }
 
 func textArea() -> AXUIElement {
@@ -677,6 +684,110 @@ func takeFocusElsewhere() {
 }
 var startedCalculator = false
 
+// MARK: - Size
+
+/// The pane's frame the way a window manager sees it: Accessibility's top-left origin, y down.
+func paneAXFrame() -> CGRect {
+    guard let pane = paneElement(), let p = attr(pane, kAXPositionAttribute), let s = attr(pane, kAXSizeAttribute)
+    else { return .zero }
+    var point = CGPoint.zero, size = CGSize.zero
+    AXValueGetValue(p as! AXValue, .cgPoint, &point)
+    AXValueGetValue(s as! AXValue, .cgSize, &size)
+    return CGRect(origin: point, size: size)
+}
+
+/// What Raycast's window commands do: a position, then a size, through Accessibility. No live resize.
+func setPaneAXFrame(_ r: CGRect) {
+    guard let pane = paneElement() else { return }
+    var point = r.origin, size = r.size
+    AXUIElementSetAttributeValue(pane, kAXPositionAttribute as CFString, AXValueCreate(.cgPoint, &point)!)
+    AXUIElementSetAttributeValue(pane, kAXSizeAttribute as CFString, AXValueCreate(.cgSize, &size)!)
+    sleepMs(400)
+}
+
+/// The visible frame of the display the pane is on, in Accessibility's coordinates.
+func axVisibleFrame(containing r: CGRect) -> CGRect {
+    let top = NSScreen.screens[0].frame.height
+    let mid = CGPoint(x: r.midX, y: top - r.midY)
+    let v = (NSScreen.screens.first { $0.frame.contains(mid) } ?? NSScreen.screens[0]).visibleFrame
+    return CGRect(x: v.minX, y: top - v.maxY, width: v.width, height: v.height)
+}
+
+func paneAutoSizing() -> Bool? {
+    guard let data = fm.contents(atPath: support + "/state.json"),
+          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let panes = json["panes"] as? [[String: Any]] else { return nil }
+    return panes.first?["autoSizing"] as? Bool
+}
+
+func near(_ a: CGRect, _ b: CGRect) -> Bool {
+    abs(a.minX - b.minX) <= 1 && abs(a.minY - b.minY) <= 1 && abs(a.width - b.width) <= 1 && abs(a.height - b.height) <= 1
+}
+
+/// A left-button drag through the HID tap, with no modifier flags (LAB). Moves the real pointer.
+func drag(from a: CGPoint, to b: CGPoint) {
+    func post(_ type: CGEventType, _ at: CGPoint) {
+        let e = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: at, mouseButton: .left)!
+        e.flags = []
+        e.post(tap: .cghidEventTap)
+    }
+    post(.mouseMoved, a); sleepMs(200)
+    post(.leftMouseDown, a); sleepMs(150)
+    // Slow, and held at the end before the release: a live resize lays the web view out at every
+    // step, and a drag posted faster than that ended a few hundred points short (LAB, 2026-11-12).
+    for i in 1...40 {
+        let t = CGFloat(i) / 40
+        post(.leftMouseDragged, CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t)); sleepMs(40)
+    }
+    post(.leftMouseDragged, b); sleepMs(300)
+    post(.leftMouseUp, b); sleepMs(500)
+}
+
+/// The pane takes any size you give it: a window manager's half of the screen, and a corner drag
+/// past the 724×1024 it used to stop at. Both stick through a keystroke and a dismiss.
+func itemResize() {
+    let item = "resize"
+    guard freshNote(item, body: "size") != nil else { return check(item, "the note appeared", false) }
+    let original = paneAXFrame()
+    let originalAuto = paneAutoSizing()
+    // ⌘K's row rather than ⇧⌘/: the slash is a different key on every layout but US.
+    func toggleAutoSizing() {
+        key(K.k, .maskCommand); sleepMs(400)
+        type("auto-siz"); sleepMs(300)
+        key(K.ret); sleepMs(300)
+    }
+    // Auto-sizing on first: a size set from outside has to survive it, which is what it used not to do.
+    if originalAuto == false { toggleAutoSizing() }
+    check(item, "auto-sizing is on before the resize", waitFor("auto-sizing on") { paneAutoSizing() == true },
+          "state.json says \(String(describing: paneAutoSizing()))")
+
+    let screen = axVisibleFrame(containing: original)
+    let half = CGRect(x: (screen.minX + screen.width / 2).rounded(), y: screen.minY,
+                      width: (screen.width / 2).rounded(), height: screen.height)
+    setPaneAXFrame(half)
+    check(item, "a window manager's Right Half is the size it asked for", near(paneAXFrame(), half), "\(paneAXFrame()) for \(half)")
+    check(item, "…and it turns auto-sizing off, as a drag does", waitFor("auto-sizing off") { paneAutoSizing() == false })
+    type(" more"); settle()
+    check(item, "…and typing leaves it at that size", near(paneAXFrame(), half), "\(paneAXFrame())")
+    dismiss()
+    sleepMs(300)   // past toggle()'s 0.25 s double-delivery guard, or the summon is swallowed
+    summon(); goBack()
+    check(item, "…and it comes back at that size", near(paneAXFrame(), half), "\(paneAXFrame())")
+
+    let small = CGRect(x: screen.minX + 200, y: screen.minY + 100, width: 500, height: 500)
+    setPaneAXFrame(small)
+    let corner = CGPoint(x: small.maxX - 2, y: small.maxY - 2)
+    drag(from: corner, to: CGPoint(x: corner.x + 600, y: corner.y + 200))
+    let dragged = paneAXFrame()
+    check(item, "a corner drag goes past the old 724-wide, 1024-tall cap", dragged.width >= 1050 && dragged.height >= 650, "\(dragged)")
+
+    setPaneAXFrame(original)
+    if originalAuto == true, paneAutoSizing() == false {
+        toggleAutoSizing()
+        _ = waitFor("auto-sizing back on") { paneAutoSizing() == true }
+    }
+}
+
 // MARK: - Run
 
 let items: [(String, () -> Void)] = [
@@ -700,6 +811,7 @@ let items: [(String, () -> Void)] = [
     ("elsewhere", itemDeletedElsewhere),
     ("bold", itemBoldWritesMarkers),
     ("hotkey", itemHotkeyReadsFocus),
+    ("resize", itemResize),
 ]
 
 let args = Array(CommandLine.arguments.dropFirst())

@@ -237,11 +237,13 @@ func runPanelGeometryTests() {
 }
 
 func runPaneWidthTests() {
-    Check.suite("Width has both ends; height has one") {
+    Check.suite("The size you choose has a floor and no ceiling") {
 
-        // Decision 22's own argument, enforced: past the content's measure a wider pane is gutters.
-        Check.test("a drag wider than the measure is capped") {
-            Check.equal(PanelGeometry.constrainWidth(1600), PanelGeometry.maximumWidth)
+        // The pane used to be capped at 724×1024 (decisions 22 and 83), which stopped an edge drag
+        // dead and turned Raycast's "Right Half" into a 724-wide strip on a 3440-wide display.
+        // Your size is yours: the floor keeps the chrome usable, and the screen is the only limit.
+        Check.test("a drag wider than the content's measure is kept") {
+            Check.equal(PanelGeometry.constrainWidth(1600), 1600)
         }
 
         Check.test("a drag narrower than the floor is lifted") {
@@ -252,22 +254,22 @@ func runPaneWidthTests() {
             Check.equal(PanelGeometry.constrainWidth(500), 500)
         }
 
-        // A frame remembered before the cap existed, or dragged wide on a bigger display, must not
-        // come back wider than the pane is now allowed to be.
-        Check.test("a remembered frame is narrowed on the way back") {
-            let screen = CGRect(x: 0, y: 0, width: 1920, height: 1080)
-            let remembered = CGRect(x: 100, y: 200, width: 1600, height: 400)
-            let restored = PanelGeometry.restore(
-                remembered: remembered,
-                titleBarHeight: 40,
-                activeVisibleFrame: screen,
-                defaultWidth: 692,
-                defaultHeight: 400
+        Check.test("a drag taller than the auto-size ceiling is kept") {
+            Check.equal(PanelGeometry.constrainHeight(1400), 1400)
+            Check.equal(PanelGeometry.constrainHeight(40), PanelGeometry.minimumHeight)
+        }
+
+        Check.test("a half-screen pane comes back as it was left") {
+            // Raycast's Right Half on a 3440×1440 ultrawide, menu bar off the top.
+            let ultrawide = CGRect(x: 0, y: 0, width: 3440, height: 1415)
+            let rightHalf = CGRect(x: 1720, y: 0, width: 1720, height: 1415)
+            Check.equal(
+                PanelGeometry.restore(
+                    remembered: rightHalf, titleBarHeight: titleBar,
+                    activeVisibleFrame: ultrawide, defaultWidth: paneWidth, defaultHeight: 400
+                ),
+                rightHalf
             )
-            Check.equal(restored.width, PanelGeometry.maximumWidth)
-            // And nothing else about it moves — "stay put" is still a rule.
-            Check.equal(restored.minX, 100)
-            Check.equal(restored.height, 400)
         }
 
         Check.test("a remembered frame inside the range is untouched") {
@@ -282,28 +284,31 @@ func runPaneWidthTests() {
             )
         }
 
-        // MARK: - The height ceiling
-        //
-        // This replaces a test called "height is not capped", which asserted the screen was the only
-        // limit. That was decision 83 as written, and it was written with only landscape displays in
-        // view. A rotated 1080×1920 monitor is what showed the difference.
-
-        Check.test("the height ceiling is derived from the width cap, not picked") {
-            // Decision 82: when a number comes from another number, derive it. √2 is the A-series
-            // page ratio, so the widest allowed pane at its tallest is exactly a page.
-            Check.equal(
-                PanelGeometry.maximumHeight,
-                (PanelGeometry.maximumWidth * 1.41421356).rounded()
+        Check.test("a remembered frame below the floor is lifted, top edge held") {
+            let screen = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+            let remembered = CGRect(x: 100, y: 600, width: 200, height: 80)
+            let restored = PanelGeometry.restore(
+                remembered: remembered, titleBarHeight: titleBar,
+                activeVisibleFrame: screen, defaultWidth: paneWidth, defaultHeight: 400
             )
+            Check.equal(restored.width, PanelGeometry.minimumWidth)
+            Check.equal(restored.height, PanelGeometry.minimumHeight)
+            Check.equal(restored.maxY, remembered.maxY, "the top edge is the one the user reaches for")
+            Check.equal(restored.minX, remembered.minX)
         }
 
-        Check.test("a portrait display cannot make an enormous pane") {
-            // 1080×1920 rotated, menu bar off the top. Without the cap this grows past 1890.
+        // MARK: - The auto-size ceiling
+        //
+        // What is left of decision 83: a height the pane picks *for* you, by following a note's
+        // content, still stops at a page. A rotated 1080×1920 monitor is what showed why.
+
+        Check.test("a portrait display cannot auto-size an enormous pane") {
+            // 1080×1920 rotated, menu bar off the top. Without the ceiling this grows past 1890.
             let portrait = CGRect(x: 0, y: 0, width: 1080, height: 1895)
             let top = portrait.maxY - 100
             Check.equal(
                 PanelGeometry.maxHeight(topY: top, visibleFrame: portrait),
-                PanelGeometry.maximumHeight,
+                PanelGeometry.autoSizeCeiling,
                 "the ceiling, not the screen edge"
             )
 
@@ -311,17 +316,12 @@ func runPaneWidthTests() {
             let grown = PanelGeometry.grown(
                 from: start, toContentHeight: 4000, visibleFrame: portrait
             )
-            Check.equal(grown.frame.height, PanelGeometry.maximumHeight)
+            Check.equal(grown.frame.height, PanelGeometry.autoSizeCeiling)
             Check.expect(grown.scrolls, "a note past the ceiling scrolls inside the pane")
             Check.equal(grown.frame.maxY, top, "growth is still anchored by the top edge")
         }
 
-        Check.test("what the ceiling actually costs, display by display") {
-            // Written after the first version of this test asserted the cap "never bites on a
-            // landscape display" and went red on two of them. It does bite, and the honest record is
-            // the measurement rather than the assumption — this is the same class of mistake as the
-            // `displayKey` comment the whole change exists to correct.
-            //
+        Check.test("what the auto-size ceiling costs, display by display") {
             // Usable height is the visible frame; the pane also keeps `bottomMargin` off the floor.
             let cases: [(String, CGRect, CGFloat)] = [
                 ("14\" built-in 1512×982", builtIn, 921),
@@ -338,23 +338,38 @@ func runPaneWidthTests() {
             }
         }
 
-        Check.test("clamped honours the ceiling as well as the screen") {
-            let screen = CGRect(x: 0, y: 0, width: 1920, height: 1080)
-            let tall = PanelGeometry.clamped(
-                CGRect(x: 0, y: 0, width: 500, height: 5000), into: screen)
-            Check.equal(tall.height, PanelGeometry.maximumHeight)
+        Check.test("a height you hold is not cut to the auto-size ceiling, or off the bottom margin") {
+            // Raycast's Right Half is the full visible height. Holding it must not shave the
+            // ceiling off it, nor the 24 pt that auto-sizing keeps clear of the screen's floor.
+            let ultrawide = CGRect(x: 0, y: 0, width: 3440, height: 1415)
+            Check.equal(
+                PanelGeometry.maxHeight(topY: ultrawide.maxY, visibleFrame: ultrawide, followingContent: false),
+                1415
+            )
+            let rightHalf = CGRect(x: 1720, y: 0, width: 1720, height: 1415)
+            let held = PanelGeometry.grown(
+                from: rightHalf, toContentHeight: 1415, visibleFrame: ultrawide, followingContent: false
+            )
+            Check.equal(held.frame, rightHalf)
+            Check.expect(!held.scrolls, "a held height is the pane's, not a note overflowing it")
         }
 
-        Check.test("a remembered frame taller than the ceiling comes back capped, top edge held") {
-            let portrait = CGRect(x: 0, y: 0, width: 1080, height: 1895)
-            let remembered = CGRect(x: 100, y: 200, width: 500, height: 1600)
-            let restored = PanelGeometry.restore(
-                remembered: remembered, titleBarHeight: titleBar,
-                activeVisibleFrame: portrait, defaultWidth: paneWidth, defaultHeight: 400
+        Check.test("a held height still stops at the screen") {
+            let screen = CGRect(x: 0, y: 0, width: 1920, height: 1055)
+            let start = CGRect(x: 0, y: 455, width: 500, height: 600)
+            let held = PanelGeometry.grown(
+                from: start, toContentHeight: 5000, visibleFrame: screen, followingContent: false
             )
-            Check.equal(restored.height, PanelGeometry.maximumHeight)
-            Check.equal(restored.maxY, remembered.maxY, "the top edge is the one the user reaches for")
-            Check.equal(restored.minX, remembered.minX)
+            Check.equal(held.frame.height, 1055)
+            Check.equal(held.frame.maxY, start.maxY)
+        }
+
+        Check.test("clamped fits the screen and nothing else") {
+            let screen = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+            let huge = PanelGeometry.clamped(
+                CGRect(x: 0, y: 0, width: 3000, height: 5000), into: screen)
+            Check.equal(huge.width, screen.width)
+            Check.equal(huge.height, screen.height - PanelGeometry.bottomMargin)
         }
 
         // MARK: - Remembering per display, and the key that could not be looked up
@@ -425,14 +440,16 @@ func runPaneWidthTests() {
             )
         }
 
-        Check.test("a last size out of range is brought back in") {
+        Check.test("a last size wider than this display is fitted to it") {
+            // A pane left at half of an ultrawide, inherited by the built-in display.
             let restored = PanelGeometry.restore(
                 remembered: nil,
                 lastSize: CGSize(width: 4000, height: 400),
                 titleBarHeight: titleBar,
                 activeVisibleFrame: builtIn, defaultWidth: paneWidth, defaultHeight: 400
             )
-            Check.equal(restored.width, PanelGeometry.maximumWidth)
+            Check.equal(restored.width, builtIn.width)
+            Check.expect(builtIn.contains(restored), "got \(restored)")
         }
     }
 }

@@ -509,9 +509,19 @@ body {
   font-size: var(--size-footer);
 }
 
-/* Two spacers around the count, one element each, exactly as the design's markup has them. */
-.pane__footer-spacer {
-  flex: 1;
+/* Two sides around the count, from a zero basis like the title bar's, so the count sits on the
+ * window's centre, under the title. The format toggle lives inside the right side: as a sibling of
+ * two plain spacers it took its 24px out of the right half alone, and the count sat 12px left of
+ * the title at every width. */
+.pane__footer-side {
+  display: flex;
+  align-items: center;
+  flex: 1 1 0;
+  min-width: min-content;
+}
+
+.pane__footer-side--end {
+  justify-content: flex-end;
 }
 
 .pane__words {
