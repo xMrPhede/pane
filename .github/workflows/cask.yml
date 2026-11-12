@@ -12,7 +12,7 @@ name: Cask
 #   - `Casks/pane.rb` in `ColeMei/homebrew-pane`, which is what Homebrew reads. Needs the
 #     `HOMEBREW_TAP_TOKEN` secret: a fine-grained token with Contents read/write on that one repo
 #     and nothing else.
-#   - `packaging/pane.rb` on `dev` here, the reviewed source copy, so the two never drift.
+#   - `packaging/pane.rb` on `main` here, the reviewed source copy, so the two never drift.
 on:
   release:
     types: [published]
@@ -42,7 +42,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: dev
+          ref: main
 
       - name: Version and sha256 of the published asset
         id: asset
@@ -107,7 +107,7 @@ jobs:
               commit -qam "pane $TAG"
           git push origin HEAD
 
-      - name: Push the source copy to dev
+      - name: Push the source copy to main
         run: |
           set -euo pipefail
           if git diff --quiet packaging/pane.rb; then
@@ -117,9 +117,9 @@ jobs:
           git -c user.name="github-actions[bot]" \
               -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
               commit -qm "chore: bump the cask to $TAG" packaging/pane.rb
-          # dev may have moved while this ran; the bump touches two lines nobody else edits.
+          # main may have moved while this ran; the bump touches two lines nobody else edits.
           for attempt in 1 2 3; do
-            git push origin HEAD:dev && exit 0
-            git pull --rebase -q origin dev
+            git push origin HEAD:main && exit 0
+            git pull --rebase -q origin main
           done
           exit 1

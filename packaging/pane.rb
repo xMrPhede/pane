@@ -6,7 +6,7 @@
 # in a repo nobody opens.
 #
 # Publishing a release runs `.github/workflows/cask.yml`, which writes the new version and sha256
-# into this file, copies it to the tap, and commits it back to dev. Edit anything here except those
+# into this file, copies it to the tap, and commits it back to main. Edit anything here except those
 # two lines; the next release carries the edit to the tap.
 
 cask "pane" do
